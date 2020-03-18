@@ -94,6 +94,10 @@ ls.add_layer("no_tile_m1", 41, 30, "no_tile_m1", "gray", alpha=0)
 ls.add_layer("no_tile_m2", 45, 30, "no_tile_m2", "gray", alpha=0)
 ls.add_layer("no_tile_m3", 49, 30, "no_tile_m3", "gray", alpha=0)
 
+layer2offset = {ls["wgcore"]: 0, ls["wgclad"]: 3}
+layer2offset_shallow_rib = {ls["slab150"]: 0, ls["slab150clad"]: 3}
+layer2offset_deep_rib = {ls["slab90"]: 0, ls["slab90clad"]: 3}
+
 layer2m = {1: 220e-9, 2: 150e-9, 3: 90 - 3}
 layer2material = {
     1: "Si (Silicon) - Palik",

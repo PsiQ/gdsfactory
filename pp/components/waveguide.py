@@ -2,23 +2,19 @@ import hashlib
 import pp
 from pp.name import autoname
 from pp.components.hline import hline
+from pp.layers import layer2offset, layer2offset_shallow_rib, layer2offset_deep_rib
 
 __version__ = "0.0.1"
 
 
 @autoname
-def waveguide(
-    length=10,
-    width=0.5,
-    layer=pp.layer("wgcore"),
-    layers_cladding=[pp.layer("wgclad")],
-    cladding_offset=3,
-):
+def waveguide(length=10, width=0.5, layer2offset=layer2offset):
     """ straight waveguide
 
     Args:
         length: in X direction
         width: in Y direction
+        layer2offset: dict of layers and offset respect to the waveguide edge
 
     .. plot::
       :include-source:
@@ -31,15 +27,13 @@ def waveguide(
     """
     c = pp.Component()
     w = width / 2
-    c.add_polygon([(0, -w), (length, -w), (length, w), (0, w)], layer=layer)
 
-    wc = w + cladding_offset
-
-    for layer_cladding in layers_cladding:
+    for layer, o in layer2offset.items():
         c.add_polygon(
-            [(0, -wc), (length, -wc), (length, wc), (0, wc)], layer=layer_cladding
+            [(0, -w - o), (length, -w - o), (length, w + o), (0, w + o)], layer=layer
         )
 
+    layer = list(layer2offset.keys())[0].gds_layer
     c.add_port(name="W0", midpoint=[0, 0], width=width, orientation=180, layer=layer)
     c.add_port(name="E0", midpoint=[length, 0], width=width, orientation=0, layer=layer)
 
@@ -49,27 +43,17 @@ def waveguide(
 
 
 @autoname
-def wg_shallow_rib(
-    width=0.5,
-    layer=pp.layer("slab150"),
-    layer_cladding=pp.layer("slab150clad"),
-    **kwargs
-):
-    width = pp.bias.width(width)
-    return waveguide(width=width, layer=layer, layer_cladding=layer_cladding, **kwargs)
+def wg_shallow_rib(width=0.5, layer2offset=layer2offset_shallow_rib, **kwargs):
+    return waveguide(width=width, layer2offset=layer2offset, **kwargs)
 
 
 @autoname
-def wg_deep_rib(
-    width=0.5, layer=pp.layer("slab90"), layer_cladding=pp.layer("slab90clad"), **kwargs
-):
-    width = pp.bias.width(width)
-    return waveguide(width=width, layer=layer, layer_cladding=layer_cladding, **kwargs)
+def wg_deep_rib(width=0.5, layer2offset=layer2offset_deep_rib, **kwargs):
+    return waveguide(width=width, layer2offset=layer2offset, **kwargs)
 
 
 @autoname
 def waveguide_biased(width=0.5, **kwargs):
-    width = pp.bias.width(width)
     return waveguide(width=width, **kwargs)
 
 
@@ -161,8 +145,8 @@ if __name__ == "__main__":
     pp.show(c)
 
     # print(c.ports)
-    cc = pp.routing.add_io_optical(c)
-    pp.show(cc)
+    # cc = pp.routing.add_io_optical(c)
+    # pp.show(cc)
 
     # c = waveguide_slab()
     # c = waveguide_trenches()
