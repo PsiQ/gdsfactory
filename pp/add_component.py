@@ -24,10 +24,6 @@ def is_same_as_in_library(
     tech: the tech where to find a reference component
     """
 
-    # # Check if the component is here
-    # if not component_is_in_library(component, tech):
-    # return False
-
     # Library component path
     lib_component_dir = get_library_path(tech)
 
