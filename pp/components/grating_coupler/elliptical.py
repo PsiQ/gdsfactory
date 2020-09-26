@@ -3,16 +3,34 @@ import pp
 from pp.geo_utils import extrude_path
 from pp.geo_utils import DEG2RAD
 from pp.layers import LAYER
+from numpy import float64, ndarray
+from pp.component import Component
+from typing import Tuple, Union
 
 
-def ellipse_arc(a, b, x0, theta_min, theta_max, angle_step=0.5):
+def ellipse_arc(
+    a: float64,
+    b: float64,
+    x0: float64,
+    theta_min: float,
+    theta_max: float,
+    angle_step: float = 0.5,
+) -> ndarray:
     theta = np.arange(theta_min, theta_max + angle_step, angle_step) * DEG2RAD
     xs = a * np.cos(theta) + x0
     ys = b * np.sin(theta)
     return np.column_stack([xs, ys])
 
 
-def grating_tooth_points(ap, bp, xp, width, taper_angle, spiked=True, angle_step=1.0):
+def grating_tooth_points(
+    ap: float64,
+    bp: float64,
+    xp: float64,
+    width: Union[float64, float],
+    taper_angle: float,
+    spiked: bool = True,
+    angle_step: float = 1.0,
+) -> ndarray:
     theta_min = -taper_angle / 2
     theta_max = taper_angle / 2
 
@@ -31,7 +49,15 @@ def grating_tooth_points(ap, bp, xp, width, taper_angle, spiked=True, angle_step
     return points
 
 
-def grating_taper_points(a, b, x0, taper_length, taper_angle, wg_width, angle_step=1.0):
+def grating_taper_points(
+    a: float64,
+    b: float64,
+    x0: float64,
+    taper_length: float64,
+    taper_angle: float,
+    wg_width: float,
+    angle_step: float = 1.0,
+) -> ndarray:
     taper_arc = ellipse_arc(a, b, taper_length, -taper_angle / 2, taper_angle / 2)
 
     port_position = np.array((x0, 0))
@@ -43,16 +69,17 @@ def grating_taper_points(a, b, x0, taper_length, taper_angle, wg_width, angle_st
 
 @pp.autoname
 def grating_coupler_elliptical_tm(
-    taper_length=16.6,
-    taper_angle=30.0,
-    lambda_c=1.554,
-    fiber_angle=15.0,
-    grating_line_width=0.707,
-    wg_width=0.5,
-    neff=1.8,  # tooth effective index
-    layer=LAYER.WG,
-    n_periods=16,
-):
+    taper_length: float = 16.6,
+    taper_angle: float = 30.0,
+    lambda_c: float = 1.554,
+    fiber_angle: float = 15.0,
+    grating_line_width: float = 0.707,
+    wg_width: float = 0.5,
+    neff: float = 1.8,  # tooth effective index
+    layer: Tuple[int, int] = LAYER.WG,
+    n_periods: int = 16,
+    **kwargs
+) -> Component:
     """
 
     Args:
@@ -79,22 +106,24 @@ def grating_coupler_elliptical_tm(
         layer=layer,
         n_periods=n_periods,
         big_last_tooth=False,
+        **kwargs
     )
 
 
 @pp.autoname
 def grating_coupler_elliptical_te(
-    taper_length=16.6,
-    taper_angle=40.0,
-    lambda_c=1.554,
-    fiber_angle=15.0,
-    grating_line_width=0.343,
-    wg_width=0.5,
-    neff=2.638,  # tooth effective index
-    layer=LAYER.WG,
-    p_start=26,
-    n_periods=24,
-):
+    taper_length: float = 16.6,
+    taper_angle: float = 40.0,
+    lambda_c: float = 1.554,
+    fiber_angle: float = 15.0,
+    grating_line_width: float = 0.343,
+    wg_width: float = 0.5,
+    neff: float = 2.638,  # tooth effective index
+    layer: Tuple[int, int] = LAYER.WG,
+    p_start: int = 26,
+    n_periods: int = 24,
+    **kwargs
+) -> Component:
     return grating_coupler_elliptical(
         polarization="te",
         taper_length=taper_length,
@@ -107,24 +136,27 @@ def grating_coupler_elliptical_te(
         layer=layer,
         p_start=p_start,
         n_periods=n_periods,
+        **kwargs
     )
 
 
 @pp.autoname
 def grating_coupler_elliptical(
-    polarization,
-    taper_length=16.6,
-    taper_angle=30.0,
-    lambda_c=1.554,
-    fiber_angle=15.0,
-    grating_line_width=0.343,
-    wg_width=0.5,
-    neff=2.638,  # tooth effective index
-    layer=LAYER.WG,
-    p_start=26,
-    n_periods=30,
-    big_last_tooth=False,
-):
+    polarization: str,
+    taper_length: float = 16.6,
+    taper_angle: float = 30.0,
+    lambda_c: float = 1.554,
+    fiber_angle: float = 15.0,
+    grating_line_width: float = 0.343,
+    wg_width: float = 0.5,
+    neff: float = 2.638,  # tooth effective index
+    layer: Tuple[int, int] = LAYER.WG,
+    p_start: int = 26,
+    n_periods: int = 30,
+    big_last_tooth: bool = False,
+    layer_slab: Tuple[int, int] = LAYER.SLAB150,
+    with_fiber_marker: bool = True,
+) -> Component:
     """
 
     Args:
@@ -220,9 +252,10 @@ def grating_coupler_elliptical(
     else:
         polarization_marker_layer = pp.LAYER.polarization_tm
 
-    circle = pp.c.circle(radius=17 / 2, layer=polarization_marker_layer)
-    circle_ref = c.add_ref(circle)
-    circle_ref.movex(taper_length + period * n_periods / 2)
+    if with_fiber_marker:
+        circle = pp.c.circle(radius=17 / 2, layer=polarization_marker_layer)
+        circle_ref = c.add_ref(circle)
+        circle_ref.movex(taper_length + period * n_periods / 2)
 
     # Add port
     c.add_port(name="W0", midpoint=[0, 0], width=wg_width, orientation=180, layer=layer)
@@ -231,14 +264,15 @@ def grating_coupler_elliptical(
     _rl = L + grating_line_width + 2.0
     _rhw = _rl * np.tan(fiber_angle * DEG2RAD) + 2.0
 
-    c.add_polygon([(0, _rhw), (_rl, _rhw), (_rl, -_rhw), (0, -_rhw)], LAYER.SLAB150)
+    if layer_slab:
+        c.add_polygon([(0, _rhw), (_rl, _rhw), (_rl, -_rhw), (0, -_rhw)], LAYER.SLAB150)
 
     return c
 
 
 if __name__ == "__main__":
-    c = grating_coupler_elliptical_te()
     c = grating_coupler_elliptical_tm()
+    c = grating_coupler_elliptical_te(layer_slab=None, with_fiber_marker=False)
     print(c.polarization)
     pp.write_gds(c)
     pp.show(c)

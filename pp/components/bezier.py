@@ -1,3 +1,4 @@
+from typing import List, Tuple
 import hashlib
 import numpy as np
 from scipy.special import binom
@@ -10,9 +11,11 @@ from pp.geo_utils import angles_deg
 from pp.geo_utils import snap_angle
 from pp.geo_utils import path_length
 from pp.geo_utils import curvature
+from numpy import ndarray
+from pp.component import Component
 
 
-def bezier_curve(t, control_points):
+def bezier_curve(t: ndarray, control_points: List[Tuple[float, int]]) -> ndarray:
     xs = 0.0
     ys = 0.0
     n = len(control_points) - 1
@@ -38,13 +41,18 @@ def bezier_biased(width=0.5, **kwargs):
 
 # Not using autoname on bezier due to control_points and t spacing
 def bezier(
-    name=None,
-    width=0.5,
-    control_points=[(0, 0), (5.0, 0), (5.0, 2.0), (10.0, 2.0)],
-    t=np.linspace(0, 1, 201),
-    layer=LAYER.WG,
+    name: None = None,
+    width: float = 0.5,
+    control_points: List[Tuple[float, float]] = [
+        (0.0, 0.0),
+        (5.0, 0.0),
+        (5.0, 2.0),
+        (10.0, 2.0),
+    ],
+    t: ndarray = np.linspace(0, 1, 201),
+    layer: Tuple[int, int] = LAYER.WG,
     **extrude_path_params
-):
+) -> Component:
     """ bezier bend """
 
     def _fmt_f(x):
@@ -138,6 +146,7 @@ def find_min_curv_bezier_control_points(
 
 def _demo():
     c = bezier()
+    print(c.ports["0"].y - c.ports["1"].y)
     pp.write_gds(c)
     pp.show(c)
 

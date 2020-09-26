@@ -8,10 +8,18 @@ import pp
 from pp.layers import LAYER
 from pp.components.manhattan_font import manhattan_text
 from pp.name import clean_name
+from pp.component import Component
+from typing import Tuple
 
 
-def text(text="abcd", size=10, position=(0, 0), justify="left", layer=LAYER.TEXT):
-    """
+def text(
+    text: str = "abcd",
+    size: float = 10.0,
+    position: Tuple[int, int] = (0, 0),
+    justify: str = "left",
+    layer: Tuple[int, int] = LAYER.TEXT,
+) -> Component:
+    """ adds text
 
     .. plot::
       :include-source:
@@ -29,7 +37,7 @@ def text(text="abcd", size=10, position=(0, 0), justify="left", layer=LAYER.TEXT
         name=clean_name(text) + "_{}_{}".format(int(position[0]), int(position[1]))
     )
     for i, line in enumerate(text.split("\n")):
-        l = pp.Component(name=t.name + "{}".format(i))
+        label = pp.Component(name=t.name + "{}".format(i))
         for c in line:
             ascii_val = ord(c)
             if c == " ":
@@ -38,24 +46,24 @@ def text(text="abcd", size=10, position=(0, 0), justify="left", layer=LAYER.TEXT
                 for poly in _glyph[ascii_val]:
                     xpts = np.array(poly)[:, 0] * scaling
                     ypts = np.array(poly)[:, 1] * scaling
-                    l.add_polygon([xpts + xoffset, ypts + yoffset], layer=layer)
+                    label.add_polygon([xpts + xoffset, ypts + yoffset], layer=layer)
                 xoffset += (_width[ascii_val] + _indent[ascii_val]) * scaling
             else:
                 ValueError(
                     "[PHIDL] text(): No glyph for character with ascii value %s"
                     % ascii_val
                 )
-        t.add_ref(l)
+        t.add_ref(label)
         yoffset -= 1500 * scaling
         xoffset = position[0]
     justify = justify.lower()
-    for l in t.references:
+    for label in t.references:
         if justify == "left":
             pass
         if justify == "right":
-            l.xmax = position[0]
+            label.xmax = position[0]
         if justify == "center":
-            l.move(origin=l.center, destination=position, axis="x")
+            label.move(origin=label.center, destination=position, axis="x")
     return t
 
 

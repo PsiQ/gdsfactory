@@ -1,3 +1,4 @@
+from typing import Callable
 import pp
 from pp.components.bend_circular import bend_circular
 from pp.components.coupler90 import coupler90
@@ -6,6 +7,7 @@ from pp.components.coupler_straight import coupler_straight
 from pp.netlist_to_gds import netlist_to_component
 from pp.name import autoname
 from pp.drc import assert_on_2nm_grid
+from pp.component import Component
 
 
 @autoname
@@ -105,27 +107,41 @@ def ring_single_bus_netlist(
 
 @pp.autoname
 def ring_single_bus(
-    coupler90_factory=coupler90,
-    cpl_straight_factory=coupler_straight,
-    straight_factory=waveguide,
-    bend90_factory=bend_circular,
-    length_y=2.0,
-    length_x=4.0,
-    gap=0.2,
-    wg_width=0.5,
-    bend_radius=5,
-):
+    coupler90_factory: Callable = coupler90,
+    cpl_straight_factory: Callable = coupler_straight,
+    straight_factory: Callable = waveguide,
+    bend90_factory: Callable = bend_circular,
+    length_y: float = 2.0,
+    length_x: float = 4.0,
+    gap: float = 0.2,
+    wg_width: float = 0.5,
+    bend_radius: int = 5,
+) -> Component:
     """ single bus ring
+    .. code::
+
+         ctl--wx--ctr
+          |       |
+         wyl     wgr
+          |       |
+        -cbl==CS==cbr-
     """
     c = pp.Component()
+    assert_on_2nm_grid(gap)
 
     # define subcells
     coupler90 = pp.call_if_func(
         coupler90_factory, gap=gap, width=wg_width, bend_radius=bend_radius
     )
-    waveguide_x = pp.call_if_func(straight_factory, length=length_x, width=wg_width)
-    waveguide_y = pp.call_if_func(straight_factory, length=length_y, width=wg_width)
-    bend = pp.call_if_func(bend90_factory, width=wg_width, radius=bend_radius)
+    waveguide_x = pp.call_if_func(
+        straight_factory, length=length_x, width=wg_width, pins=False
+    )
+    waveguide_y = pp.call_if_func(
+        straight_factory, length=length_y, width=wg_width, pins=False
+    )
+    bend = pp.call_if_func(
+        bend90_factory, width=wg_width, radius=bend_radius, pins=False
+    )
     coupler_straight = pp.call_if_func(
         cpl_straight_factory, gap=gap, length=length_x, width=wg_width
     )
@@ -177,6 +193,7 @@ def _compare_rings():
 if __name__ == "__main__":
     # c = ring_single_bus(bend_radius=5.0, length_x=0.2, length_y=0.13, gap=0.15, wg_width=0.45)
     c = ring_single_bus(bend_radius=5.0, gap=0.3, wg_width=0.45)
+    print(c.get_settings())
     pp.show(c)
     # c = ring_single_bus(bend_radius=5.0, length_x=2, length_y=4, gap=0.2, wg_width=0.4)
     # _compare_rings()

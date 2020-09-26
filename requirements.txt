@@ -2,7 +2,7 @@
 click
 gitpython
 gdspy
-hiyapyco
+omegaconf
 jsondiff
 klayout
 numpy
@@ -11,6 +11,8 @@ phidl
 picwriter
 pyqtree
 qrcode
+rectpack
 scipy
 shapely
-xlrd
+pytest-regressions
+networkx

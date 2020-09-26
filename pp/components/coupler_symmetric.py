@@ -1,11 +1,20 @@
 import pp
 from pp.components.bend_s import bend_s
+from pp.component import Component
+from typing import Callable, List, Tuple
 
 __version__ = "0.0.1"
 
 
 @pp.autoname
-def coupler_symmetric(bend=bend_s, gap=0.234, wg_width=0.5):
+def coupler_symmetric(
+    bend: Callable = bend_s,
+    gap: float = 0.234,
+    wg_width: float = 0.5,
+    layer: Tuple[int, int] = pp.LAYER.WG,
+    layers_cladding: List[Tuple[int, int]] = [pp.LAYER.WGCLAD],
+    cladding_offset: float = 3.0,
+) -> Component:
     """ two coupled waveguides with bends
 
     Args:
@@ -21,7 +30,14 @@ def coupler_symmetric(bend=bend_s, gap=0.234, wg_width=0.5):
       pp.plotgds(c)
 
     """
-    bend = pp.call_if_func(bend, width=wg_width)
+    bend = pp.call_if_func(
+        bend,
+        width=wg_width,
+        layer=layer,
+        layers_cladding=layers_cladding,
+        cladding_offset=cladding_offset,
+        pins=False,
+    )
 
     w = bend.ports["W0"].width
     y = (w + gap) / 2

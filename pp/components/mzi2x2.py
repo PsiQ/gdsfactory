@@ -1,3 +1,4 @@
+from typing import Callable
 from pp.components import bend_circular
 from pp.components import wg_heater_connected as waveguide_heater
 from pp.components import waveguide
@@ -5,28 +6,29 @@ from pp.components import coupler
 from pp.netlist_to_gds import netlist_to_component
 from pp.name import autoname
 from pp.routing import route_elec_ports_to_side
-from pp.ports.utils import select_electrical_ports
+from pp.port import select_electrical_ports
 
 from pp.components.extension import line
 from pp.components.component_sequence import component_sequence
+from pp.component import Component
 
 
 @autoname
 def mzi_arm(
-    L0=60,
-    L1=0,
-    L_top=10.0,
-    bend_radius=10.0,
-    bend90_factory=bend_circular,
-    straight_heater_factory=waveguide_heater,
-    straight_factory=waveguide,
-    with_elec_connections=True,
-):
+    L0: float = 60.0,
+    DL: float = 0.0,
+    L_top: float = 10.0,
+    bend_radius: float = 10.0,
+    bend90_factory: Callable = bend_circular,
+    straight_heater_factory: Callable = waveguide_heater,
+    straight_factory: Callable = waveguide,
+    with_elec_connections: bool = True,
+) -> Component:
     """
 
     Args:
         L0: vertical length with heater
-        L1: extra vertical length without heater
+        DL: extra vertical length without heater (delat_length=2*DL)
         L_top: 10.0, horizontal length
         bend_radius: 10.0
         bend90_factory: bend_circular
@@ -37,7 +39,7 @@ def mzi_arm(
 
          L_top
         |     |
-        L1    L1
+        DL    DL
         |     |
         L0    L0
         |     |
@@ -62,17 +64,21 @@ def mzi_arm(
 
 
     """
+    if not with_elec_connections:
+        straight_heater_factory = straight_factory
 
     _bend = bend90_factory(radius=bend_radius)
 
     straight_vheater = straight_heater_factory(length=L0)
     straight_h = straight_factory(length=L_top)
-    straight_v = straight_factory(length=L1) if L1 > 0 else None
+    straight_v = straight_factory(length=DL) if DL > 0 else None
+
+    port_number = 1 if with_elec_connections else 0
 
     string_to_device_in_out_ports = {
         "A": (_bend, "W0", "N0"),
         "B": (_bend, "N0", "W0"),
-        "H": (straight_vheater, "W0", "E0"),
+        "H": (straight_vheater, f"W{port_number}", f"E{port_number}"),
         "Sh": (straight_h, "W0", "E0"),
         "Sv": (straight_v, "W0", "E0"),
     }
@@ -101,24 +107,24 @@ def mzi_arm(
 
 @autoname
 def mzi2x2(
-    CL_1=20.147,
-    L0=60,
-    L1=7.38,
-    L2=10.0,
-    gap=0.234,
-    bend_radius=10.0,
-    bend90_factory=bend_circular,
-    straight_heater_factory=waveguide_heater,
-    straight_factory=waveguide,
-    coupler_factory=coupler,
-    with_elec_connections=True,
-):
+    CL_1: float = 20.147,
+    L0: float = 60.0,
+    DL: float = 7.38,
+    L2: float = 10.0,
+    gap: float = 0.234,
+    bend_radius: float = 10.0,
+    bend90_factory: Callable = bend_circular,
+    straight_heater_factory: Callable = waveguide_heater,
+    straight_factory: Callable = waveguide,
+    coupler_factory: Callable = coupler,
+    with_elec_connections: bool = False,
+) -> Component:
     """ Mzi 2x2
 
     Args:
         CL_1: coupler length
         L0: vertical length for both and top arms
-        L1: bottom arm extra length
+        DL: bottom arm extra length
         L2: L_top horizontal length
         gap: 0.235
         bend_radius: 10.0
@@ -138,7 +144,7 @@ def mzi2x2(
         |      |
         L0     L0
         |      |
-        L1     L1
+        DL     DL
         |      |
         |__L2__|
 
@@ -155,10 +161,12 @@ def mzi2x2(
 
       import pp
 
-      c = pp.c.mzi2x2(CL_1=10, gap=0.2)
+      c = pp.c.mzi2x2(CL_1=10., gap=0.2)
       pp.plotgds(c)
 
     """
+    if not with_elec_connections:
+        straight_heater_factory = straight_factory
 
     if callable(coupler_factory):
         cpl = coupler_factory(length=CL_1, gap=gap)
@@ -175,7 +183,7 @@ def mzi2x2(
     }
 
     arm_top = mzi_arm(L0=L0, **arm_defaults)
-    arm_bot = mzi_arm(L0=L0, L1=L1, **arm_defaults)
+    arm_bot = mzi_arm(L0=L0, DL=DL, **arm_defaults)
 
     components = {
         "CP1": (cpl, "None"),
@@ -259,7 +267,7 @@ def mzi2x2(
         for k, p in component.ports.items():
             p.name = k
 
-    elif straight_heater_factory == waveguide:
+    else:
         ports_map = {
             "W0": ("CP1", "W0"),
             "W1": ("CP1", "W1"),
@@ -283,7 +291,11 @@ if __name__ == "__main__":
     # print(get_mzi_delta_length(m=15))
     # print(get_mzi_delta_length(m=150))
 
-    # c = mzi2x2()
-    c = mzi2x2(straight_heater_factory=waveguide_heater)
-    pp.write_gds(c, "mzi.gds")
+    # c = mzi_arm(DL=100)
+    c = mzi2x2()
+    # c = mzi2x2(straight_heater_factory=waveguide_heater, with_elec_connections=True)
+    # pp.write_gds(c, "mzi.gds")
+    # print(c)
+    # print(hash(frozenset(c.settings.items())))
+    # print(hash(c))
     pp.show(c)

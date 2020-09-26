@@ -80,11 +80,10 @@ def connect_bundle_waypoints(
     **kwargs
 ):
     """
-    start_ports: a list of ports
-    end_ports: a list of ports
-    way_points: a list of points defining a route
-        with way_points[0] = start_ports[0]
-        way_points[-1] = end_ports[0]
+    Args:
+        start_ports: list of ports
+        end_ports: list of ports
+        way_points: list of points defining a route
 
     """
     if len(end_ports) != len(start_ports):
@@ -104,10 +103,7 @@ def connect_bundle_waypoints(
     start_angle = start_ports[0].orientation
     end_angle = end_ports[0].orientation
 
-    """
-    Sort the ports such that the bundle connect the correct
-    corresponding ports.
-    """
+    # Sort the ports such that the bundle connect the correct corresponding ports.
 
     angles_to_sorttypes = {
         (0, 180): ("Y", "Y"),
@@ -149,8 +145,8 @@ def connect_bundle_waypoints(
 
     bends90 = [bend_factory(radius=bend_radius, width=p.width) for p in start_ports]
 
-    if taper_factory != None:
-        if type(taper_factory) == type(lambda a: a):
+    if taper_factory:
+        if callable(taper_factory):
             taper = taper_factory(
                 length=TAPER_LENGTH,
                 width1=start_ports[0].width,

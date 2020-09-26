@@ -1,13 +1,12 @@
-import hashlib
-import numpy as np
-import sys
-import json
-
 """
 From two GDS files, find which cells are identical
 and which cells with the same name are different
 This is not a diff tool
 """
+import hashlib
+import sys
+import json
+import numpy as np
 
 
 def _print(*args, **kwargs):
@@ -97,7 +96,6 @@ def hash_cells(cell, dict_hashes={}, precision=1e-4, dbg_indent=0, dbg=False):
 
     final_hash = hashlib.sha1()
 
-    # if cell.name == "hline_L10p3_W0p48_L16_0":
     for layer in layers:
         layer_hash = hashlib.sha1(str(layer).encode()).hexdigest()
         polygons = polygons_by_spec[tuple(layer)]
@@ -217,7 +215,7 @@ def compare_gds_to_lib(teg, lib_cells=[]):
 
     with open("dbg.json", "w") as fw:
         fw.write(
-            json.dumps({"LIB": name_to_hash_lib, "TEG": name_to_hash_teg,}, indent=2)
+            json.dumps({"LIB": name_to_hash_lib, "TEG": name_to_hash_teg}, indent=2)
         )
 
     # hash_to_name_teg = {v: k for k, v in name_to_hash_teg.items()}

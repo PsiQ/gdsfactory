@@ -1,131 +1,26 @@
+import itertools
 import uuid
 import json
-import hashlib
-from copy import deepcopy
+import pathlib
+from typing import Any, Dict, List, Optional, Tuple, Union
 import numpy as np
-from numpy import pi, sin, cos, mod
-
-import gdspy
+from numpy import float64, int64, ndarray, pi, sin, cos, mod
+from omegaconf import OmegaConf
+import networkx as nx
 
 from phidl.device_layout import Label
 from phidl.device_layout import Device
 from phidl.device_layout import DeviceReference
 from phidl.device_layout import _parse_layer
-from phidl.device_layout import Port as PortPhidl
 
-from pp.ports import select_optical_ports
-from pp.ports import select_electrical_ports
-import pp
-from pp.config import CONFIG
+from pp.port import Port, select_optical_ports, select_electrical_ports
+from pp.config import CONFIG, conf, connections
 from pp.compare_cells import hash_cells
-
-NAME_TO_DEVICE = {}
-
-BBOX_LAYER_EXCLUDE = CONFIG["BBOX_LAYER_EXCLUDE"]
-
-
-class Port(PortPhidl):
-    """ Extends phidl port by adding layer and a port_type (optical, electrical)
-
-    Args:
-        name: we name ports according to orientation (S0, S1, W0, W1, N0 ...)
-        midpoint: (0, 0)
-        width: of the port
-        orientation: 0
-        parent: None, parent component (component to which this port belong to)
-        layer: 1
-        port_type: optical, dc, rf, detector, superconducting, trench
-
-    """
-
-    _next_uid = 0
-
-    def __init__(
-        self,
-        name=None,
-        midpoint=(0, 0),
-        width=1,
-        orientation=0,
-        parent=None,
-        layer=1,
-        port_type="optical",
-    ):
-        self.name = name
-        self.midpoint = np.array(midpoint, dtype="float64")
-        self.width = width
-        self.orientation = mod(orientation, 360)
-        self.parent = parent
-        self.info = {}
-        self.uid = Port._next_uid
-        self.layer = layer
-        self.port_type = port_type
-
-        if self.width < 0:
-            raise ValueError("[PHIDL] Port creation error: width must be >=0")
-        self._next_uid += 1
-
-    def __repr__(self):
-        return "Port (name {}, midpoint {}, width {}, orientation {}, layer {}, port_type {})".format(
-            self.name,
-            self.midpoint,
-            self.width,
-            self.orientation,
-            self.layer,
-            self.port_type,
-        )
-
-    @property
-    def angle(self):
-        """convenient alias"""
-        return self.orientation
-
-    @angle.setter
-    def angle(self, a):
-        self.orientation = a
-
-    @property
-    def position(self):
-        return self.midpoint
-
-    @position.setter
-    def position(self, p):
-        self.midpoint = np.array(p, dtype="float64")
-
-    def move(self, vector):
-        self.midpoint = self.midpoint + np.array(vector)
-
-    def move_polar_copy(self, d, angle):
-        port = self._copy()
-        DEG2RAD = np.pi / 180
-        dp = np.array((d * np.cos(DEG2RAD * angle), d * np.sin(DEG2RAD * angle)))
-        self.move(dp)
-        return port
-
-    def flip(self):
-        """ flips port """
-        port = self._copy()
-        port.angle = (port.angle + 180) % 360
-        return port
-
-    def _copy(self, new_uid=True):
-        new_port = Port(
-            name=self.name,
-            midpoint=self.midpoint,
-            width=self.width,
-            orientation=self.orientation,
-            parent=self.parent,
-            layer=self.layer,
-            port_type=self.port_type,
-        )
-        new_port.info = deepcopy(self.info)
-        if not new_uid:
-            new_port.uid = self.uid
-            Port._next_uid -= 1
-        return new_port
+from pp.name import dict2hash
 
 
 class SizeInfo:
-    def __init__(self, bbox):
+    def __init__(self, bbox: ndarray) -> None:
         self.west = bbox[0, 0]
         self.east = bbox[1, 0]
         self.south = bbox[0, 1]
@@ -175,8 +70,12 @@ class SizeInfo:
         )
 
 
-def _rotate_points(points, angle=45, center=(0, 0)):
-    """ Rotates points around a centerpoint defined by ``center``.  ``points`` may be
+def _rotate_points(
+    points: Union[Tuple[int, int], ndarray],
+    angle: Union[float64, int, int64, float] = 45,
+    center: Union[Tuple[int, int], List[int], ndarray] = (0, 0),
+) -> ndarray:
+    """Rotates points around a centerpoint defined by ``center``.  ``points`` may be
     input as either single points [1,2] or array-like[N][2], and will return in kind
     """
     # First check for common, easy values of angle
@@ -205,32 +104,33 @@ def _rotate_points(points, angle=45, center=(0, 0)):
 class ComponentReference(DeviceReference):
     def __init__(
         self,
-        device,
-        origin=(0, 0),
-        rotation=0,
-        magnification=None,
-        x_reflection=False,
-        visual_label="",
-    ):
+        component,
+        origin: Tuple[int, int] = (0, 0),
+        rotation: int = 0,
+        magnification: None = None,
+        x_reflection: bool = False,
+        visual_label: str = "",
+    ) -> None:
         super().__init__(
-            device=device,
+            device=component,
             origin=origin,
             rotation=rotation,
             magnification=magnification,
             x_reflection=x_reflection,
         )
-        self.parent = device
+        self.parent = component
         # The ports of a DeviceReference have their own unique id (uid),
         # since two DeviceReferences of the same parent Device can be
         # in different locations and thus do not represent the same port
         self._local_ports = {
-            name: port._copy(new_uid=True) for name, port in device.ports.items()
+            name: port._copy(new_uid=True) for name, port in component.ports.items()
         }
         self.visual_label = visual_label
 
     def __repr__(self):
         return (
-            'DeviceReference (parent Device "%s", ports %s, origin %s, rotation %s, x_reflection %s)'
+            'DeviceReference (parent Device "%s", ports %s, origin %s, rotation %s,'
+            " x_reflection %s)"
             % (
                 self.parent.name,
                 list(self.ports.keys()),
@@ -244,11 +144,11 @@ class ComponentReference(DeviceReference):
         return self.__repr__()
 
     def __getitem__(self, val):
-        """ This allows you to access an alias from the reference's parent, and receive
+        """This allows you to access an alias from the reference's parent, and receive
         a copy of the reference which is correctly rotated and translated"""
         try:
             alias_device = self.parent[val]
-        except:
+        except Exception:
             raise ValueError(
                 '[PHIDL] Tried to access alias "%s" from parent '
                 'Device "%s", which does not exist' % (val, self.parent.name)
@@ -270,7 +170,9 @@ class ComponentReference(DeviceReference):
 
         return new_reference
 
-    def get_labels(self, recursive=True, associate_visual_labels=True):
+    def get_labels(
+        self, recursive: None = True, associate_visual_labels: bool = True
+    ) -> List[Any]:
         """
         access all labels correctly rotated, mirrored and translated
         """
@@ -307,8 +209,8 @@ class ComponentReference(DeviceReference):
         return labels
 
     @property
-    def ports(self):
-        """ This property allows you to access myref.ports, and receive a copy
+    def ports(self) -> Dict[str, Port]:
+        """This property allows you to access myref.ports, and receive a copy
         of the ports dict which is correctly rotated and translated"""
         for name, port in self.parent.ports.items():
             port = self.parent.ports[name]
@@ -333,119 +235,23 @@ class ComponentReference(DeviceReference):
         return self._local_ports
 
     @property
-    def info(self):
+    def info(self) -> Dict[str, Union[float64, float]]:
         return self.parent.info
 
-    # @property
-    # def bbox(self):
-    # bbox = self.get_bounding_box()
-    # if bbox is None:
-    # bbox = ((0, 0), (0, 0))
-    # return np.array(bbox)
-
-    # def get_bounding_box(self):
-    # """
-    # WARNING ! This does not work as well as GDSPY method. But is cheaper.
-    # Comment this method if packing breaks
-
-    # the bounding box of a reference is the transformed
-    # bounding box of the parent cell
-    # """
-
-    # _bbox = self.parent.get_bounding_box()
-    # bbox = np.array([self._transform_point(
-    # p, self.origin, self.rotation, self.x_reflection
-    # ) for p in _bbox])
-    # return bbox
-
-    def get_bounding_box2(self):
-        """
-        Returns the bounding box for this reference.
-
-        Returns
-        -------
-        out : Numpy array[2,2] or ``None``
-            Bounding box of this cell [[x_min, y_min], [x_max, y_max]],
-            or ``None`` if the cell is empty.
-        """
-        if not isinstance(self.ref_cell, gdspy.Cell):
-            return None
-        if (
-            self.rotation is None
-            and self.magnification is None
-            and self.x_reflection is None
-        ):
-            key = self.ref_cell
-        else:
-            key = (self.ref_cell, self.rotation, self.magnification, self.x_reflection)
-
-        if key not in gdspy._bounding_boxes:
-            """
-            The bounding boxes are all valid, but this specific transformation
-            has not been registered yet. Fetch bbox, and apply transform
-            """
-            _bb = self.ref_cell.get_bounding_box()
-            if _bb is not None:
-                bb = np.array(
-                    [
-                        self._transform_point(
-                            p, (0, 0), self.rotation, self.x_reflection
-                        )
-                        for p in _bb
-                    ]
-                )
-                _x1, _x2 = bb[0, 0], bb[1, 0]
-                _y1, _y2 = bb[0, 1], bb[1, 1]
-
-                bb[0, 0] = min(_x1, _x2)
-                bb[1, 0] = max(_x1, _x2)
-                bb[0, 1] = min(_y1, _y2)
-                bb[1, 1] = max(_y1, _y2)
-                gdspy._bounding_boxes[key] = bb
-
-            else:
-                bb = None
-        else:
-            bb = gdspy._bounding_boxes[key]
-        if self.origin is None or bb is None:
-            return bb
-        else:
-            translation = np.array(
-                [(self.origin[0], self.origin[1]), (self.origin[0], self.origin[1])]
-            )
-            return bb + translation
-
     @property
-    def bbox(self):
-        _bbox = self.ref_cell.get_bounding_box()
-        bbox = np.array(
-            [
-                self._transform_point(p, self.origin, self.rotation, self.x_reflection)
-                for p in _bbox
-            ]
-        )
-
-        # Rearrange min,max
-        bbox[1][0], bbox[0][0] = (
-            max(bbox[1][0], bbox[0][0]),
-            min(bbox[1][0], bbox[0][0]),
-        )
-        bbox[1][1], bbox[0][1] = (
-            max(bbox[1][1], bbox[0][1]),
-            min(bbox[1][1], bbox[0][1]),
-        )
-
-        return bbox
-
-    @property
-    def size_info(self):
+    def size_info(self) -> SizeInfo:
         return SizeInfo(self.bbox)
         # if self.__size_info__ == None:
         # return self.__size_info__
 
     def _transform_port(
-        self, point, orientation, origin=(0, 0), rotation=None, x_reflection=False
-    ):
+        self,
+        point: ndarray,
+        orientation: Union[float64, int64],
+        origin: Union[Tuple[int, int], ndarray] = (0, 0),
+        rotation: Optional[Union[float64, int, int64]] = None,
+        x_reflection: bool = False,
+    ) -> Union[Tuple[ndarray, float64], Tuple[ndarray, int64]]:
         # Apply GDS-type transformations to a port (x_ref)
         new_point = np.array(point)
         new_orientation = orientation
@@ -462,7 +268,13 @@ class ComponentReference(DeviceReference):
 
         return new_point, new_orientation
 
-    def _transform_point(self, point, origin=(0, 0), rotation=None, x_reflection=False):
+    def _transform_point(
+        self,
+        point: ndarray,
+        origin: Union[Tuple[int, int], ndarray] = (0, 0),
+        rotation: Optional[Union[int64, int, float]] = None,
+        x_reflection: bool = False,
+    ) -> ndarray:
         # Apply GDS-type transformations to a port (x_ref)
         new_point = np.array(point)
 
@@ -475,10 +287,25 @@ class ComponentReference(DeviceReference):
 
         return new_point
 
-    def move(self, origin=(0, 0), destination=None, axis=None):
-        """ Moves the DeviceReference from the origin point to the destination.  Both
-         origin and destination can be 1x2 array-like, Port, or a key
-         corresponding to one of the Ports in this device_ref """
+    def move(
+        self,
+        origin: Union[
+            Port,
+            ndarray,
+            List[Union[float, float64]],
+            Tuple[int, int],
+            List[Union[int, float]],
+        ] = (0, 0),
+        destination: Optional[Any] = None,
+        axis: Optional[str] = None,
+    ):
+        """Moves the DeviceReference from the origin point to the destination.  Both
+        origin and destination can be 1x2 array-like, Port, or a key
+        corresponding to one of the Ports in this device_ref
+
+        Returns:
+            ComponentReference
+        """
 
         # If only one set of coordinates is defined, make sure it's used to move things
         if destination is None:
@@ -493,7 +320,8 @@ class ComponentReference(DeviceReference):
             o = self.ports[origin].midpoint
         else:
             raise ValueError(
-                "[ComponentReference.move()] ``origin`` not array-like, a port, or port name"
+                "[ComponentReference.move()] ``origin`` not array-like, a port, or port"
+                " name"
             )
 
         if isinstance(destination, Port):
@@ -504,7 +332,8 @@ class ComponentReference(DeviceReference):
             d = self.ports[destination].midpoint
         else:
             raise ValueError(
-                "[ComponentReference.move()] ``destination`` not array-like, a port, or port name"
+                "[ComponentReference.move()] ``destination`` not array-like, a port, or"
+                " port name"
             )
 
         # Lock one axis if necessary
@@ -519,7 +348,15 @@ class ComponentReference(DeviceReference):
         self._bb_valid = False
         return self
 
-    def rotate(self, angle=45, center=(0, 0)):
+    def rotate(
+        self,
+        angle: Union[float64, int, int64, float] = 45,
+        center: Union[Tuple[int, int], ndarray] = (0, 0),
+    ):
+        """
+        Returns:
+            ComponentReference
+        """
         if angle == 0:
             return self
         if type(center) == str or type(center) == int:
@@ -545,7 +382,7 @@ class ComponentReference(DeviceReference):
             x0 = position.x
         self.reflect((x0, 1), (x0, 0))
 
-    def reflect_v(self, port_name=None, y0=None):
+    def reflect_v(self, port_name: Optional[str] = None, y0: None = None) -> None:
         """
         Perform vertical mirror (w.r.t horizontal axis)
         """
@@ -557,7 +394,11 @@ class ComponentReference(DeviceReference):
             y0 = position.y
         self.reflect((1, y0), (0, y0))
 
-    def reflect(self, p1=(0, 1), p2=(0, 0)):
+    def reflect(
+        self,
+        p1: Union[Tuple[float64, float64], Tuple[int, float64]] = (0, 1),
+        p2: Union[Tuple[float64, float64], Tuple[int, float64]] = (0, 0),
+    ):
         if type(p1) is Port:
             p1 = p1.midpoint
         if type(p2) is Port:
@@ -586,7 +427,9 @@ class ComponentReference(DeviceReference):
         self._bb_valid = False
         return self
 
-    def connect(self, port, destination, overlap=0):
+    def connect(self, port: str, destination: Port, overlap: float = 0):
+        """ returns ComponentReference
+        """
         # ``port`` can either be a string with the name or an actual Port
         if port in self.ports:  # Then ``port`` is a key for the ports dict
             p = self.ports[port]
@@ -611,9 +454,15 @@ class ComponentReference(DeviceReference):
                 ]
             )
         )
+        if destination.parent:
+            global connections
+            # connections[f"{self.parent.uid}_{int(self.x)}_{int(self.y)},{port}"] = f"{destination.parent.get_property('uid')},{destination.name}"
+            connections[
+                f"{self.get_property('name')}_{int(self.x)}_{int(self.y)},{port}"
+            ] = f"{destination.parent.get_property('name')}_{int(destination.parent.x)}_{int(destination.parent.y)},{destination.name}"
         return self
 
-    def get_property(self, property):
+    def get_property(self, property: str) -> Union[str, int]:
         if hasattr(self, property):
             return self.property
 
@@ -621,7 +470,7 @@ class ComponentReference(DeviceReference):
 
 
 class Component(Device):
-    """ inherits from phidl.Device and extends some functionality
+    """adds some functions to phidl.Device
 
     - get/write JSON metadata
     - get ports by type (optical, electrical ...)
@@ -629,38 +478,146 @@ class Component(Device):
 
     """
 
-    def __init__(self, *args, **kwargs):
+    def __init__(
+        self,
+        name: str = "Unnamed",
+        polarization: None = None,
+        wavelength: None = None,
+        test_protocol: None = None,
+        data_analysis_protocol: None = None,
+        *args,
+        **kwargs,
+    ) -> None:
         # Allow name to be set like Component('arc') or Component(name = 'arc')
 
-        if "name" in kwargs:
-            _internal_name = kwargs.pop("name")
-        elif (len(args) == 1) and (len(kwargs) == 0):
-            _internal_name = args[0]
-        else:
-            _internal_name = "Unnamed"
-
-        # print(_internal_name, len(args), len(kwargs))
-
-        self.data_analysis_protocol = kwargs.pop("data_analysis_protocol", {})
-        self.test_protocol = kwargs.pop("test_protocol", {})
+        self.data_analysis_protocol = data_analysis_protocol or {}
+        self.test_protocol = test_protocol or {}
+        self.wavelength = wavelength
+        self.polarization = polarization
 
         self.settings = kwargs
         self.__ports__ = {}
         self.info = {}
         self.aliases = {}
         self.uid = str(uuid.uuid4())[:8]
-        self._internal_name = _internal_name
-        gds_name = _internal_name
 
-        if "with_uuid" in kwargs or _internal_name == "Unnamed":
-            gds_name += "_" + self.uid
+        if "with_uuid" in kwargs or name == "Unnamed":
+            name += "_" + self.uid
 
-        super(Component, self).__init__(name=gds_name, exclude_from_current=True)
-        self.name = gds_name
+        super(Component, self).__init__(name=name, exclude_from_current=True)
+        self.name = name
+        self.name_long = None
+        self.function_name = None
 
-    def get_optical_ports(self):
+    def plot_netlist(
+        self, label_index_end=1, with_labels=True, font_weight="normal",
+    ):
+        """plots a netlist graph with networkx
+        https://networkx.github.io/documentation/stable/reference/generated/networkx.drawing.nx_pylab.draw_networkx.html
+
+        Args:
+            label_index_end: name args separated with `_` to print (-1: all)
+            with_labels: label nodes
+            font_weight: normal, bold
+        """
+        import matplotlib.pyplot as plt
+
+        netlist = self.get_netlist()
+        connections = netlist.connections
+        G = nx.Graph()
+        G.add_edges_from(
+            [(k.split(",")[0], v.split(",")[0]) for k, v in connections.items()]
+        )
+        pos = {k: (v["x"], v["y"]) for k, v in netlist.placements.items()}
+        labels = {
+            k: "_".join(k.split("_")[:label_index_end])
+            for k in netlist.placements.keys()
+        }
+        nx.draw(
+            G, with_labels=with_labels, font_weight=font_weight, labels=labels, pos=pos
+        )
+        plt.show()
+
+    def get_netlist(self, full_settings=False):
+        """returns netlist dict(instances, placements, connections)
+        if full_settings: exports all the settings
+        """
+        instances = {}
+        placements = {}
+
+        for r in self.references:
+            i = r.parent
+            reference_name = f"{i.name}_{int(r.x)}_{int(r.y)}"
+            if full_settings:
+                settings = i.settings
+            else:
+                settings = i.settings_changed
+            instances[reference_name] = dict(
+                component=i.function_name, settings=settings
+            )
+            placements[reference_name] = dict(
+                x=float(r.x), y=float(r.y), rotation=int(r.rotation)
+            )
+
+        connections_connected = {}
+
+        # print(instances.keys())
+        for src, dst in connections.items():
+            # print(src.split(',')[0])
+            # trim netlist:
+            # only instances that are part of the component are connected
+            if src.split(",")[0] in instances:
+                connections_connected[src] = dst
+
+        netlist = OmegaConf.create(
+            dict(
+                instances=instances,
+                placements=placements,
+                connections=connections_connected,
+            )
+        )
+        self.netlist = netlist
+        return netlist
+
+    def get_name_long(self):
+        """ returns the long name if it's been truncated to MAX_NAME_LENGTH"""
+        if self.name_long:
+            return self.name_long
+        else:
+            return self.name
+
+    def get_sparameters_path(self, dirpath=CONFIG["sp"], height_nm=220):
+        dirpath = pathlib.Path(dirpath)
+        dirpath = dirpath / self.function_name if self.function_name else dirpath
+        dirpath.mkdir(exist_ok=True, parents=True)
+        return dirpath / f"{self.get_name_long()}_{height_nm}.dat"
+
+    def get_optical_ports(self) -> List[Port]:
         """ returns a lit of optical ports """
         return list(select_optical_ports(self.ports).values())
+
+    def ports_on_grid(self) -> None:
+        """ asserts if all ports ar eon grid """
+        for port in self.ports.values():
+            port.on_grid()
+
+    def get_ports_array(self) -> Dict[str, ndarray]:
+        """ returns ports as a dict of np arrays"""
+        self.ports_on_grid()
+        ports_array = {
+            port_name: np.array(
+                [
+                    port.x,
+                    port.y,
+                    int(port.orientation),
+                    port.width,
+                    port.layer[0],
+                    port.layer[1],
+                ]
+            )
+            for port_name, port in self.ports.items()
+        }
+        return ports_array
 
     def get_electrical_ports(self):
         """ returns a list of optical ports """
@@ -668,11 +625,22 @@ class Component(Device):
 
     def get_properties(self):
         """ returns name, uid, ports, aliases and numer of references """
-        return f"name: {self._internal_name}, uid: {self.uid},  ports: {self.ports.keys()}, aliases {self.aliases.keys()}, number of references: {len(self.references)}"
+        return (
+            f"name: {self._internal_name}, uid: {self.uid},  ports:"
+            f" {self.ports.keys()}, aliases {self.aliases.keys()}, number of"
+            f" references: {len(self.references)}"
+        )
 
     def ref(
-        self, position=(0, 0), port_id=None, rotation=0, h_mirror=False, v_mirror=False
-    ):
+        self,
+        position: Union[
+            Tuple[float, float], Port, Tuple[int, float], ndarray, Tuple[int, int]
+        ] = (0, 0),
+        port_id: Optional[str] = None,
+        rotation: Union[float64, int, int64] = 0,
+        h_mirror: bool = False,
+        v_mirror: bool = False,
+    ) -> ComponentReference:
         """ returns a reference of the component """
         _ref = ComponentReference(self)
 
@@ -705,7 +673,7 @@ class Component(Device):
         _ref.move(center, position)
         return _ref
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return self.name
 
     def __str__(self):
@@ -716,7 +684,7 @@ class Component(Device):
         for key, value in kwargs.items():
             self.settings[key] = _clean_value(value)
 
-    def get_property(self, property):
+    def get_property(self, property: str) -> Union[str, int]:
         if property in self.settings:
             return self.settings[property]
         if hasattr(self, property):
@@ -726,22 +694,27 @@ class Component(Device):
             "Component {} does not have property {}".format(self.name, property)
         )
 
-    def get_settings(self, **kwargs):
-        """ Returns settings dictionary
-        """
+    def get_settings(self) -> Dict[str, Any]:
+        """Returns settings dictionary"""
         output = {}
         ignore = set(
             dir(Component())
-            + ["path", "settings", "properties", "function_name", "type"]
+            + [
+                "path",
+                "settings",
+                "properties",
+                "function_name",
+                "type",
+                "netlist",
+                "pins",
+                "settings_changed",
+            ]
         )
         params = set(dir(self)) - ignore
         output["name"] = self.name
 
         if hasattr(self, "function_name"):
-            output["class"] = _clean_value(self.function_name)
-
-        for key, value in kwargs.items():
-            output[key] = _clean_value(value)
+            output["function_name"] = self.function_name
 
         for key, value in self.settings.items():
             output[key] = _clean_value(value)
@@ -752,26 +725,35 @@ class Component(Device):
 
         # output["hash"] = hashlib.md5(json.dumps(output).encode()).hexdigest()
         # output["hash_geometry"] = str(self.hash_geometry())
+        output = {k: output[k] for k in sorted(output)}
         return output
+
+    def get_settings_model(self):
+        """ returns important settings for a compact model"""
+        ignore = ["layer", "layers_cladding", "cladding_offset"]
+        s = self.get_settings()
+        [s.pop(i) for i in ignore]
+        return s
 
     def add_port(
         self,
-        name=None,
-        midpoint=(0, 0),
-        width=1,
-        orientation=45,
-        port=None,
-        layer=1,
-        port_type="optical",
-    ):
-        """ Can be called to copy an existing port like add_port(port = existing_port) or
+        name: Optional[Union[str, int]] = None,
+        midpoint: Any = (0, 0),
+        width: Union[float64, int, float] = 1,
+        orientation: Union[int, int64, float] = 45,
+        port: Optional[Port] = None,
+        layer: Union[Tuple[int, int], int] = (1, 0),
+        port_type: str = "optical",
+    ) -> Port:
+        """Can be called to copy an existing port like add_port(port = existing_port) or
         to create a new port add_port(myname, mymidpoint, mywidth, myorientation).
         Can also be called to copy an existing port with a new name like add_port(port = existing_port, name = new_name)"""
         if port:
             if not isinstance(port, Port):
                 print(type(port))
                 raise ValueError(
-                    "[PHIDL] add_port() error: Argument `port` must be a Port for copying"
+                    "[PHIDL] add_port() error: Argument `port` must be a Port for"
+                    " copying"
                 )
             p = port._copy(new_uid=True)
             if name is not None:
@@ -796,21 +778,25 @@ class Component(Device):
             p.name = name
         if p.name in self.ports:
             raise ValueError(
-                '[DEVICE] add_port() error: Port name "%s" already exists in this Device (name "%s", uid %s)'
-                % (p.name, self._internal_name, self.uid)
+                '[DEVICE] add_port() error: Port name "%s" already exists in this'
+                ' Device (name "%s", uid %s)' % (p.name, self._internal_name, self.uid)
             )
 
         self.ports[p.name] = p
         return p
 
-    def get_json(self, **kwargs):
+    def snap_ports_to_grid(self, nm=1):
+        for port in self.ports.values():
+            port.snap_to_grid(nm=nm)
+
+    def get_json(self, **kwargs) -> Dict[str, Any]:
         """ returns JSON metadata """
         jsondata = {
-            "json_version": 6,
+            "json_version": 7,
             "cells": recurse_structures(self),
             "test_protocol": self.test_protocol,
             "data_analysis_protocol": self.data_analysis_protocol,
-            "git_hash": pp.CONFIG["git_hash"],
+            "git_hash": conf["git_hash"],
         }
 
         if hasattr(self, "analysis"):
@@ -818,26 +804,32 @@ class Component(Device):
 
         return jsondata
 
+    def __hash__(self) -> int:
+        h = dict2hash(**self.settings)
+        return int(h, 16)
+
     def hash_geometry(self):
-        """ returns geometrical hash
-        """
+        """returns geometrical hash"""
         if self.references or self.polygons:
-            return hash_cells(self, {})[self.name]
+            h = hash_cells(self, {})[self.name]
         else:
-            return "empty_geometry"
+            h = "empty_geometry"
+
+        self.settings.update(hash=h)
+        return h
 
     def remove_layers(
         self, layers=(), include_labels=True, invert_selection=False, recursive=True
     ):
         """ remove a list of layers """
-        layers = [_parse_layer(l) for l in layers]
+        layers = [_parse_layer(layer) for layer in layers]
         all_D = list(self.get_dependencies(recursive))
         all_D += [self]
         for D in all_D:
             for polygonset in D.polygons:
                 polygon_layers = zip(polygonset.layers, polygonset.datatypes)
                 polygons_to_keep = [(pl in layers) for pl in polygon_layers]
-                if invert_selection == False:
+                if not invert_selection:
                     polygons_to_keep = [(not p) for p in polygons_to_keep]
                 polygonset.polygons = [
                     p for p, keep in zip(polygonset.polygons, polygons_to_keep) if keep
@@ -849,30 +841,30 @@ class Component(Device):
                     p for p, keep in zip(polygonset.datatypes, polygons_to_keep) if keep
                 ]
 
-            if include_labels == True:
+            if include_labels:
                 new_labels = []
-                for l in D.labels:
-                    original_layer = (l.layer, l.texttype)
+                for label in D.labels:
+                    original_layer = (label.layer, label.texttype)
                     original_layer = _parse_layer(original_layer)
                     if invert_selection:
                         keep_layer = original_layer in layers
                     else:
                         keep_layer = original_layer not in layers
                     if keep_layer:
-                        new_labels += [l]
+                        new_labels += [label]
                 D.labels = new_labels
         return self
 
     @property
-    def size_info(self):
+    def size_info(self) -> SizeInfo:
         """ size info of the component """
         # if self.__size_info__ == None:
         # self.__size_info__  = SizeInfo(self.bbox)
         return SizeInfo(self.bbox)  # self.__size_info__
 
-    def add_ref(self, D, alias=None):
-        """ Takes a Device and adds it as a ComponentReference to the current
-        Device.  """
+    def add_ref(self, D, alias: Optional[str] = None) -> ComponentReference:
+        """Takes a Component and adds it as a ComponentReference to the current
+        Device."""
         if type(D) in (list, tuple):
             return [self.add_ref(E) for E in D]
         if not isinstance(D, Component) and not isinstance(D, Device):
@@ -888,64 +880,32 @@ class Component(Device):
             self.aliases[alias] = d
         return d
 
-    def get_bounding_box2(self, layers_excl=BBOX_LAYER_EXCLUDE, force=False):
+    def get_layers(self):
+        """returns a set of (layer, datatype)
+
+        >>> import pp
+        >>> pp.c.waveguide().get_layers() == {(1, 0), (111, 0)}
+
         """
-        Calculate the bounding box for this cell.
+        layers = set()
+        for element in itertools.chain(self.polygons, self.paths):
+            for layer, datatype in zip(element.layers, element.datatypes):
+                layers.add((layer, datatype))
+        for reference in self.references:
+            for layer, datatype in reference.ref_cell.get_layers():
+                layers.add((layer, datatype))
+        for label in self.labels:
+            layers.add((label.layer, 0))
+        return layers
 
-        Returns
-            out : Numpy array[2, 2] or None
-                Bounding box of this cell [[x_min, y_min], [x_max, y_max]],
-                or None if the cell is empty.
-        """
-        if (
-            len(self.polygons) == 0
-            and len(self.paths) == 0
-            and len(self.references) == 0
-        ):
-            return None
 
-        if force or (
-            not (
-                self._bb_valid
-                and all(ref._bb_valid for ref in self.get_dependencies(True))
-            )
-        ):
-            bb = None  # np.array(((1e300, 1e300), (-1e300, -1e300)))
-            all_polygons = []
-            for polygon in self.polygons:
+def test_get_layers():
+    import pp
 
-                polygons = _filter_polys(polygon, layers_excl)
-
-                all_polygons.extend(polygons)
-            for path in self.paths:
-                all_polygons.extend(path.to_polygonset().polygons)
-            for reference in self.references:
-                reference_bb = reference.get_bounding_box()
-                if reference_bb is not None:
-                    if bb is None:
-                        bb = reference_bb.copy()
-                    else:
-                        bb[0, 0] = min(bb[0, 0], reference_bb[0, 0])
-                        bb[0, 1] = min(bb[0, 1], reference_bb[0, 1])
-                        bb[1, 0] = max(bb[1, 0], reference_bb[1, 0])
-                        bb[1, 1] = max(bb[1, 1], reference_bb[1, 1])
-
-            if len(all_polygons) > 0:
-                all_points = np.concatenate(all_polygons).transpose()
-                if bb is None:
-                    bb = np.zeros([2, 2])
-                    bb[0, 0] = all_points[0].min()
-                    bb[0, 1] = all_points[1].min()
-                    bb[1, 0] = all_points[0].max()
-                    bb[1, 1] = all_points[1].max()
-                else:
-                    bb[0, 0] = min(bb[0, 0], all_points[0].min())
-                    bb[0, 1] = min(bb[0, 1], all_points[1].min())
-                    bb[1, 0] = max(bb[1, 0], all_points[0].max())
-                    bb[1, 1] = max(bb[1, 1], all_points[1].max())
-            self._bb_valid = True
-            gdspy._bounding_boxes[self] = bb
-        return gdspy._bounding_boxes[self]
+    c = pp.c.waveguide()
+    assert c.get_layers() == {(1, 0), (111, 0)}
+    c.remove_layers((111, 0))
+    assert c.get_layers() == {(1, 0)}
 
 
 def _filter_polys(polygons, layers_excl):
@@ -960,7 +920,7 @@ IGNORE_FUNCTION_NAMES = set()
 IGNORE_STRUCTURE_NAME_PREFIXES = set(["zz_conn"])
 
 
-def recurse_structures(structure):
+def recurse_structures(structure: Component) -> Dict[str, Any]:
     """ Recurse over structures """
     if (
         hasattr(structure, "function_name")
@@ -988,22 +948,23 @@ def recurse_structures(structure):
     return output
 
 
-def _clean_value(value):
+def _clean_value(value: Any) -> Any:
     """ returns a clean value """
     if type(value) in [int, float, str, tuple]:
         value = value
     elif callable(value):
         value = value.__name__
-    elif type(value) == pp.Component:
+    elif type(value) == Component:
         value = value.name
-    elif hasattr(value, "__iter__"):
-        value = "_".join(["{}".format(i) for i in value]).replace(".", "p")
     # elif hasattr(value, "__iter__"):
-    #     try:
-    #         json.dumps(value)
-    #         value = value
-    #     except Exception:
-    #         value = str(value)
+    #     value = "_".join(["{}".format(i) for i in value]).replace(".", "p")
+    elif hasattr(value, "__iter__"):
+        try:
+            json.dumps(value)
+            value = value
+        except Exception:
+            # value = str(value)
+            value = "_".join(["{}".format(i) for i in value]).replace(".", "p")
     elif isinstance(value, np.int32):
         value = int(value)
     elif isinstance(value, np.int64):
@@ -1014,23 +975,82 @@ def _clean_value(value):
     return value
 
 
-def demo_component(port):
+def test_same_uid():
+    import pp
+
+    c = Component()
+    c << pp.c.rectangle()
+    c << pp.c.rectangle()
+
+    r1 = c.references[0].parent
+    r2 = c.references[1].parent
+
+    print(r1.uid, r2.uid)
+    print(r1 == r2)
+
+
+def test_netlist_simple():
+    import pp
+
     c = pp.Component()
+    c1 = c << pp.c.waveguide(length=1, width=1)
+    c2 = c << pp.c.waveguide(length=2, width=2)
+    c2.connect(port="W0", destination=c1.ports["E0"])
+    c.add_port("W0", port=c1.ports["W0"])
+    c.add_port("E0", port=c2.ports["E0"])
+    netlist = c.get_netlist()
+    # print(netlist.pretty())
+    assert len(netlist["instances"]) == 2
+    assert len(netlist["connections"]) == 1
+
+
+def test_netlist_complex():
+    import pp
+
+    c = pp.c.mzi()
+    netlist = c.get_netlist()
+    # print(netlist.pretty())
+    assert len(netlist["instances"]) == 18
+    assert len(netlist["connections"]) == 18
+
+
+def demo_component(port):
+    c = Component()
     c.add_port(name="p1", port=port)
     return c
 
 
 if __name__ == "__main__":
-    # c = pp.c.bend_circular180()
-    c = pp.c.coupler()
+    import pp
+
+    # c = pp.c.ring_single()
+    c = pp.c.mzi()
+    c.plot_netlist()
+
+    # test_netlist_simple()
+    # test_netlist_complex()
+
     # c = pp.c.waveguide()
+    # c = pp.c.dbr(n=1)
+
+    # print(c.get_layers())
+
+    # c = pp.c.bend_circular180()
+    # c = pp.c.coupler()
+    # c.add_labels()
+    # pp.show(c)
+    # test_same_uid()
+
+    # c = pp.c.mmi1x2()
     # c = pp.c.mzi1x2()
-    # c = pp.c.ring_double_bus()
+
     # print(c.hash_geometry())
     # print(c.get_json())
     # print(c.get_settings())
     # print(c.settings)
-    print(c.get_settings())
+
+    # print(c.get_settings())
+    # print(c.get_ports_array())
 
     # print(json.dumps(c.get_settings()))
     # print(c.get_json()['cells'].keys())
@@ -1067,4 +1087,3 @@ if __name__ == "__main__":
     # print(c.get_json())
     # print(c.get_settings())
     # print(c.get_settings(test="hi"))
-    # pp.show(c)

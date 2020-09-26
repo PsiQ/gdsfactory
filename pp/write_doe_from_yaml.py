@@ -1,9 +1,9 @@
-""" build DOE from YAML config file """
+""" write DOE from YAML file """
 
 import sys
 import importlib
 
-from pp.config import CONFIG, load_config
+from pp.config import CONFIG
 from pp.doe import load_does
 from pp.write_doe import write_doe
 
@@ -21,12 +21,14 @@ def import_custom_doe_factories():
             pass
 
 
-def write_doe_from_yaml(config=CONFIG):
+def write_doe_from_yaml(filepath):
     """ Loads DOE settings from yaml file and writes GDS into build_directory
 
     Args:
         filepath: YAML file describing DOE
-        add_io_function: default add_io_optical
+
+    Returns:
+        gdspaths: list
 
     For each DOE save:
 
@@ -35,9 +37,9 @@ def write_doe_from_yaml(config=CONFIG):
     - ports CSV
     - markdown report, with DOE settings
     """
-    does = load_does(config)
+    does = load_does(filepath)
 
-    gds_paths = []
+    gdspaths = []
     for doe_name, doe in does.items():
         # print(doe_name)
         # print(doe.get("settings"))
@@ -56,13 +58,14 @@ def write_doe_from_yaml(config=CONFIG):
             test=doe.get("test"),
             functions=doe.get("functions"),
         )
-        gds_paths.append(d)
-    return gds_paths
+        gdspaths.append(d)
+    return gdspaths
 
 
 def test_write_doe_from_yaml():
-    config = load_config(CONFIG["samples_path"] / "mask" / "config.yml")
-    write_doe_from_yaml(config)
+    does_path = CONFIG["samples_path"] / "mask" / "does.yml"
+    gdspaths = write_doe_from_yaml(does_path)
+    print(gdspaths)
 
 
 if __name__ == "__main__":

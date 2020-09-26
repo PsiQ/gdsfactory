@@ -3,16 +3,17 @@ write_component_type: try to load a component from library or creates if it does
 write_component: write component and metadata
 """
 
-import os
 import pathlib
 import json
+from pathlib import PosixPath
+from typing import Optional
 from phidl import device_layout as pd
 
-from pp import CONFIG
+from pp.config import CONFIG, conf
 from pp.name import get_component_name
 from pp.components import component_type2factory
-from pp.ports import add_port_markers
 from pp import klive
+from pp.component import Component
 
 from pp.layers import LAYER
 
@@ -30,8 +31,6 @@ def write_component_type(
     overwrite=False,
     path_directory=CONFIG["gds_directory"],
     component_type2factory=component_type2factory,
-    add_port_pins=True,
-    flatten=False,
     **kwargs,
 ):
     """ write_component by type or function
@@ -41,7 +40,6 @@ def write_component_type(
         overwrite:
         path_directory: to store GDS + metadata
         component_type2factory: factory dictionary
-        flatten: False
         **kwargs: component args
     """
     if callable(component_type):
@@ -49,20 +47,16 @@ def write_component_type(
 
     assert type(component_type) == str
 
-    if not os.path.isdir(path_directory):
-        os.makedirs(path_directory)
-
     component_name = get_component_name(component_type, **kwargs)
     gdspath = path_directory / (component_name + ".gds")
+    path_directory.mkdir(parents=True, exist_ok=True)
 
-    if not os.path.isfile(gdspath) or overwrite:
+    if not gdspath.exists() or overwrite:
         component = component_type2factory[component_type](
             name=component_name, **kwargs
         )
         component.type = component_type
-        if flatten:
-            component.flatten()
-        write_component(component, gdspath, add_port_pins=add_port_pins)
+        write_component(component, gdspath)
 
     return gdspath
 
@@ -75,11 +69,7 @@ def write_component_report(component, json_path=None):
         json_path
     """
 
-    if json_path is None:
-        json_path = CONFIG["gds_directory"] / component.name + ".json"
-
-    if not os.path.exists(os.path.dirname(json_path)):
-        os.makedirs(os.path.dirname(json_path))
+    json_path = json_path or CONFIG["gds_directory"] / component.name + ".json"
 
     ports_path = json_path[:-5] + ".ports"
 
@@ -105,16 +95,13 @@ def write_component_report(component, json_path=None):
 
 
 def write_component(
-    component,
-    gdspath=None,
-    path_library=CONFIG["gds_directory"],
-    add_port_pins=True,
-    add_ports_to_all_cells=False,
-    store_hash_geometry=False,
-    with_component_label=False,
-    precision=1e-9,
-    settings=None,
-):
+    component: Component,
+    gdspath: Optional[PosixPath] = None,
+    path_library: PosixPath = CONFIG["gds_directory"],
+    precision: float = 1e-9,
+    settings: None = None,
+    with_settings_label: bool = conf.tech.with_settings_label,
+) -> str:
     """ write component GDS and metadata:
 
     - gds
@@ -125,17 +112,12 @@ def write_component(
         component:
         gdspath:
         path_library
-        add_port_pins: adds port metadata
-        add_ports_to_all_cells: make sure that all sub-cells have port (necessary for netlist extraction)
-        store_hash_geometry:
-        with_component_label: adds a label to component
         precision: to save GDS points
         settings: dict of settings
     """
 
     gdspath = gdspath or path_library / (component.name + ".gds")
     gdspath = pathlib.Path(gdspath)
-    path_library.mkdir(exist_ok=True)
     ports_path = gdspath.with_suffix(".ports")
     json_path = gdspath.with_suffix(".json")
 
@@ -143,11 +125,8 @@ def write_component(
     gdspath = write_gds(
         component=component,
         gdspath=str(gdspath),
-        add_port_pins=add_port_pins,
-        add_ports_to_all_cells=add_ports_to_all_cells,
-        store_hash_geometry=store_hash_geometry,
-        with_component_label=with_component_label,
         precision=precision,
+        with_settings_label=with_settings_label,
     )
 
     """ write .ports in CSV"""
@@ -182,26 +161,20 @@ def write_json(json_path, **settings):
 
 
 def write_gds(
-    component,
-    gdspath=None,
-    add_ports_to_all_cells=False,
-    add_port_pins=True,
-    store_hash_geometry=False,
-    with_component_label=False,
-    unit=1e-6,
-    precision=1e-9,
-    remove_previous_markers=False,
-    auto_rename=False,
-):
+    component: Component,
+    gdspath: Optional[PosixPath] = None,
+    unit: float = 1e-6,
+    precision: float = 1e-9,
+    remove_previous_markers: bool = False,
+    auto_rename: bool = False,
+    with_settings_label: bool = conf.tech.with_settings_label,
+) -> str:
     """ write component to GDS and returs gdspath
 
     Args:
         component (required)
         gdspath: by default saves it into CONFIG['gds_directory']
-        add_ports_to_all_cells: to child cells - required to export netlists
-        add_port_pins: show port metadata
         auto_rename: False by default (otherwise it calls it top_cell)
-        with_component_label
         unit
         precission
 
@@ -210,7 +183,10 @@ def write_gds(
     """
 
     gdspath = gdspath or CONFIG["gds_directory"] / (component.name + ".gds")
+    gdspath = pathlib.Path(gdspath)
+    gdsdir = gdspath.parent
     gdspath = str(gdspath)
+    gdsdir.mkdir(parents=True, exist_ok=True)
 
     if remove_previous_markers:
         # If the component HAS ports AND markers and we want to
@@ -220,58 +196,40 @@ def write_gds(
         component.remove_layers([port_layer])
         component.remove_layers([label_layer])
 
-    if add_port_pins and add_ports_to_all_cells:
-        referenced_cells = list(component.get_dependencies(recursive=True))
-        all_cells = [component] + referenced_cells
-        all_cells = list(set(all_cells))
-        for c in all_cells:
-            add_port_markers(c)
-    elif add_port_pins:
-        add_port_markers(component)
-
-    folder = os.path.split(gdspath)[0]
-    if folder and not os.path.isdir(folder):
-        os.makedirs(folder)
-
-    if store_hash_geometry:
-        # Remove any label on hash layer
-        old_label = [l for l in component.labels if l.layer == LAYER.INFO_GEO_HASH]
-        if len(old_label) > 0:
-            for l in old_label:
-                component.labels.remove(l)
-
-        # Add new hash label
-        # component.label(
-        # text=component.hash_geometry(),
-        # position=component.size_info.cc,
-        # layer=LAYER.INFO_GEO_HASH,
-        # )
-        # Add new hash label
-        if not hasattr(component, "settings"):
-            component.settings = {}
-        component.settings.update(dict(hash_geometry=component.hash_geometry()))
-
     # write component settings into text layer
-    if with_component_label:
-        for i, (k, v) in enumerate(component.settings.items()):
-            component.label(
-                text=f"{k}={v}",
-                position=component.center + [0, i * 0.4],
-                layer=LAYER.TEXT,
+    if with_settings_label:
+        settings = component.get_settings()
+
+        for i, k in enumerate(sorted(list(settings.keys()))):
+            v = settings.get(k)
+            text = f"{k} = {clean_value(v)}"
+            # print(text)
+            component.add_label(
+                text=text,
+                position=component.center - [0, i * 1],
+                layer=CONFIG["layers"]["TEXT"],
             )
 
-    component.write_gds(gdspath, precision=precision, auto_rename=auto_rename)
+    component.write_gds(
+        gdspath, precision=precision, auto_rename=auto_rename,
+    )
     component.path = gdspath
     return gdspath
 
 
+def clean_value(value):
+    if isinstance(value, Component):
+        value = value.name
+    elif callable(value):
+        value = value.__name__
+    elif isinstance(value, dict):
+        value = {k: clean_value(v) for k, v in value.items()}
+    return value
+
+
 def show(
-    component,
-    gdspath=CONFIG["gdspath"],
-    add_ports_to_all_cells=False,
-    add_port_pins=True,
-    **kwargs,
-):
+    component: Component, gdspath: PosixPath = CONFIG["gdspath"], **kwargs
+) -> None:
     """ write component GDS and shows it in klayout
 
     Args:
@@ -280,6 +238,7 @@ def show(
     """
     if isinstance(component, pathlib.Path):
         component = str(component)
+        return klive.show(component)
     elif isinstance(component, str):
         return klive.show(component)
     elif hasattr(component, "path"):
@@ -289,15 +248,15 @@ def show(
             "Component is None, make sure that your function returns the component"
         )
 
-    else:
+    elif isinstance(component, Component):
         write_gds(
-            component,
-            gdspath,
-            add_ports_to_all_cells=add_ports_to_all_cells,
-            add_port_pins=add_port_pins,
-            **kwargs,
+            component, gdspath, **kwargs,
         )
         klive.show(gdspath)
+    else:
+        raise ValueError(
+            f"Component is {type(component)}, make sure pass a Component or a path"
+        )
 
 
 if __name__ == "__main__":
@@ -320,7 +279,7 @@ if __name__ == "__main__":
     # gdspath = write_component(cc)
 
     # gdspath = write_component_type("ring_double_bus", overwrite=True, flatten=False)
-    # gdspath = write_component_type("waveguide", length=5, overwrite=True, add_port_pins=False)
+    # gdspath = write_component_type("waveguide", length=5, overwrite=True)
     # gdspath = write_component_type("mmi1x2", width_mmi=5, overwrite=True)
     # gdspath = write_component_type("mzi2x2", overwrite=True)
     # gdspath = write_component_type("bend_circular", overwrite=True)

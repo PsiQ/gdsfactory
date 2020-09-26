@@ -4,7 +4,7 @@ from pp.components.coupler import coupler
 from pp.components.crossing_waveguide import crossing45
 from pp.components.crossing_waveguide import compensation_path
 from pp.routing.repackage import package_optical2x2
-from pp.ports import get_ports_facing
+from pp.port import get_ports_facing
 from pp.config import GRID_PER_UNIT
 
 COUNTER = itertools.count()
@@ -40,8 +40,8 @@ def get_sequence_cross(
             to each-other means that the two modes have to be swapped
         `S`: Straight waveguide, or compensation path typically
 
-    Returns the sequence of crossings to achieve the permutations between
-    two columns of I/O
+    Returns:
+        sequence of crossings to achieve the permutations between two columns of I/O
     """
     wgs = list(waveguides_start)
     waveguides_end = list(waveguides_end)
@@ -136,11 +136,7 @@ def component_lattice(
         CXX
         C-X
         """,
-    components={
-        "C": package_optical2x2(component=coupler, port_spacing=40.0),
-        "X": crossing45(port_spacing=40.0),
-        "-": compensation_path(crossing45=crossing45(port_spacing=40.0)),
-    },
+    components=None,
 ):
     """
     A lattice of N inputs and outputs with components at given locations
@@ -160,10 +156,24 @@ def component_lattice(
       :include-source:
 
       import pp
+      from pp.routing.repackage import package_optical2x2
+      from pp.components.crossing_waveguide import crossing45
+      from pp.components.crossing_waveguide import compensation_path
 
-      c = pp.c.component_lattice()
+      components =  {
+            "C": package_optical2x2(component=pp.c.coupler, port_spacing=40.0),
+            "X": crossing45(port_spacing=40.0),
+            "-": compensation_path(crossing45=crossing45(port_spacing=40.0)),
+      }
+      c = pp.c.component_lattice(components=components)
       pp.plotgds(c)
+
     """
+    components = components or {
+        "C": package_optical2x2(component=coupler, port_spacing=40.0),
+        "X": crossing45(port_spacing=40.0),
+        "-": compensation_path(crossing45=crossing45(port_spacing=40.0)),
+    }
 
     # Find y spacing and check that all components have same y spacing
 
@@ -180,11 +190,9 @@ def component_lattice(
                 if y_spacing is None:
                     y_spacing = _y_spacing
                 else:
-                    assert (
-                        abs(y_spacing - _y_spacing) < 0.1 / GRID_PER_UNIT
-                    ), "All component must have the same y port spacing. Got {}, {}\
-                    ".format(
-                        y_spacing, _y_spacing
+                    assert abs(y_spacing - _y_spacing) < 0.1 / GRID_PER_UNIT, (
+                        "All component must have the same y port spacing. Got"
+                        f" {y_spacing}, {_y_spacing} for {cmp.name}"
                     )
 
     a = y_spacing
@@ -230,16 +238,14 @@ def component_lattice(
 
             else:
                 raise ValueError(
-                    "component symbol {} is not part of \
-                components dictionnary".format(
-                        c
-                    )
+                    "component symbol {} is not part of                 components"
+                    " dictionnary".format(c)
                 )
 
             j += 1
         x += L
 
-    component = pp.ports.port_naming.rename_ports_by_orientation(component)
+    component = pp.port.rename_ports_by_orientation(component)
     return component
 
 
@@ -252,7 +258,7 @@ def parse_lattice(lattice, components):
         if len(line) > 0:
             i = 0
             for c in line:
-                if not i in columns.keys():
+                if i not in columns.keys():
                     columns[i] = []
 
                 columns[i].append(c)
@@ -265,6 +271,21 @@ def parse_lattice(lattice, components):
     return columns, columns_to_length
 
 
+def test_component_lattice():
+    import pp
+    from pp.routing.repackage import package_optical2x2
+    from pp.components.crossing_waveguide import crossing45
+    from pp.components.crossing_waveguide import compensation_path
+
+    components = {
+        "C": package_optical2x2(component=pp.c.coupler, port_spacing=40.0),
+        "X": crossing45(port_spacing=40.0),
+        "-": compensation_path(crossing45=crossing45(port_spacing=40.0)),
+    }
+    c = pp.c.component_lattice(components=components)
+    return c
+
+
 if __name__ == "__main__":
-    c = component_lattice()
+    c = test_component_lattice()
     pp.show(c)

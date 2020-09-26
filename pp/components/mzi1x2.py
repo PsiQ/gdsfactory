@@ -7,28 +7,30 @@ from pp.components import mmi1x2
 from pp.components.mzi2x2 import mzi_arm
 from pp.netlist_to_gds import netlist_to_component
 from pp.routing import route_elec_ports_to_side
-from pp.ports.utils import select_electrical_ports
+from pp.port import select_electrical_ports
 
 from pp.components.extension import line
+from pp.component import Component
+from typing import Callable
 
 
 @pp.autoname
 def mzi1x2(
-    L0=0.1,
-    L1=9,
-    L2=10,
-    bend_radius=10.0,
-    bend90_factory=bend_circular,
-    straight_heater_factory=waveguide_heater,
-    straight_factory=waveguide,
-    coupler_factory=mmi1x2,
-    with_elec_connections=False,
-):
+    L0: float = 0.1,
+    DL: float = 9.0,
+    L2: float = 10.0,
+    bend_radius: float = 10.0,
+    bend90_factory: Callable = bend_circular,
+    straight_heater_factory: Callable = waveguide_heater,
+    straight_factory: Callable = waveguide,
+    coupler_factory: Callable = mmi1x2,
+    with_elec_connections: bool = False,
+) -> Component:
     """ Mzi 1x2
 
     Args:
         L0: vertical length for both and top arms
-        L1: bottom arm extra length
+        DL: bottom arm extra length
         L2: L_top horizontal length
         bend_radius: 10.0
         bend90_factory: bend_circular
@@ -38,22 +40,22 @@ def mzi1x2(
 
     .. code::
 
-         __L2__
-        |      |
-        L0     L0
-        |      |
-      --|      |--
-        |      |
-        L0     L0
-        |      |
-        L1     L1
-        |      |
-        |__L2__|
+             __L2__
+            |      |
+            L0     L0
+            |      |
+          --|      |--
+            |      |
+            L0     L0
+            |      |
+            DL     DL
+            |      |
+            |__L2__|
 
 
-         top_arm
-    -CP1=       =CP2-
-         bot_arm
+             top_arm
+        -CP1=       =CP2-
+             bot_arm
 
 
     .. plot::
@@ -61,7 +63,7 @@ def mzi1x2(
 
       import pp
 
-      c = pp.c.mzi1x2(L0=0.1, L1=0, L2=10)
+      c = pp.c.mzi1x2(L0=0.1, DL=0, L2=10)
       pp.plotgds(c)
 
     """
@@ -80,7 +82,7 @@ def mzi1x2(
     }
 
     arm_top = mzi_arm(L0=L0, **arm_defaults)
-    arm_bot = mzi_arm(L0=L0 + L1, **arm_defaults)
+    arm_bot = mzi_arm(L0=L0 + DL, **arm_defaults)
 
     components = {
         "CP1": (cpl, "None"),

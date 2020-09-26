@@ -1,0 +1,12 @@
+function_name: pad_array
+module: pp.components.electrical.pad
+n: 6
+name: pad_array
+port_list:
+- N
+spacing:
+- 150
+- 0
+start:
+- 0
+- 0

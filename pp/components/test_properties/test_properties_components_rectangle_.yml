@@ -1,0 +1,11 @@
+centered: 'False'
+function_name: rectangle
+layer:
+- 1
+- 0
+module: pp.components.rectangle
+name: rectangle
+ports_parameters: {}
+size:
+- 4.0
+- 2.0

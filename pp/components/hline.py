@@ -1,12 +1,15 @@
 import pp
 from pp.layers import LAYER
-from pp.name_and_cache import autoname_and_cache
+from pp.component import Component
+from typing import Tuple
 
 __version__ = "0.0.1"
 
 
-@autoname_and_cache
-def hline(length=10, width=0.5, layer=LAYER.WG):
+@pp.autoname
+def hline(
+    length: float = 10.0, width: float = 0.5, layer: Tuple[int, int] = LAYER.WG,
+) -> Component:
     """ horizonal line waveguide, with ports on east and west sides
 
     .. plot::

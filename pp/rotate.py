@@ -1,9 +1,11 @@
-from pp.ports import deco_rename_ports
+from pp.port import deco_rename_ports
+from pp.container import container
 from pp.component import Component
 
 
+@container
 @deco_rename_ports
-def rotate(component, angle=90):
+def rotate(component: Component, angle: int = 90) -> Component:
     """ returns rotated component
     """
     c = Component(

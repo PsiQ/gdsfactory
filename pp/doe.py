@@ -2,7 +2,8 @@
 """
 
 import itertools as it
-from pp.config import CONFIG, load_config
+from omegaconf import OmegaConf
+from pp.config import CONFIG
 
 
 sample = """
@@ -17,7 +18,7 @@ does:
 """
 
 
-def load_does(config=CONFIG):
+def load_does(filepath):
     """ returns a dictionary with the information loaded from does.yml
 
     Args:
@@ -46,11 +47,13 @@ def load_does(config=CONFIG):
 
     """
     does = {}
-    if config.get("does") is None:
-        raise ValueError(f"no does defined in {CONFIG}")
-    input_does = config["does"]
+    input_does = OmegaConf.load(filepath)
+    input_does = OmegaConf.to_container(input_does)
 
     for doe_name, doe in input_does.items():
+        if doe_name == "mask":
+            continue
+
         if "do_permutation" in doe:
             do_permutation = doe.pop("do_permutation")
         else:
@@ -59,15 +62,14 @@ def load_does(config=CONFIG):
             doe_name
         )
 
-        doe_settings = doe.pop("settings")
-        try:
+        doe_settings = doe.pop("settings", "")
+        if doe_settings:
             doe["settings"] = get_settings_list(do_permutation, **doe_settings)
-        except Exception:
-            print(doe_name, "DOE needs to be a dictionary")
-            print("got:", doe)
-            print("sample:", sample)
+        else:
+            raise ValueError(
+                "DOE {doe_name} needs to be a dictionary\n\t got: {doe}\n\t sample: {sample"
+            )
 
-            raise
         does[doe_name] = doe
 
     return does
@@ -116,16 +118,16 @@ def get_settings_list(do_permutations=True, **kwargs):
     return settings
 
 
-def test_load_doe():
-    config = load_config(CONFIG["samples_path"] / "mask" / "config.yml")
-    does = load_does(config)
-    assert does
+def test_load_does():
+    filepath = CONFIG["samples_path"] / "mask" / "does.yml"
+    does = load_does(filepath)
+    assert len(does) == 2
     return does
 
 
 if __name__ == "__main__":
-    # test_load_doe()
-    from pprint import pprint
+    test_load_does()
+    # from pprint import pprint
 
-    config = load_config(CONFIG["samples_path"] / "mask" / "config.yml")
-    pprint(load_does(config))
+    # does_path = CONFIG["samples_path"] / "mask" / "does.yml"
+    # pprint(load_does(does_path))

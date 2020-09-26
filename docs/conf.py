@@ -1,29 +1,34 @@
-from recommonmark.parser import CommonMarkParser
 from recommonmark.transform import AutoStructify
 
 project = "gdsfactory"
-version = "1.1.5"
+version = "1.3.3"
 copyright = "2019, PsiQ"
 author = "PsiQ"
 
 master_doc = "index"
 html_theme = "sphinx_rtd_theme"
 
-source_parsers = {".md": CommonMarkParser}
-source_suffix = [".rst", ".md"]
+source_suffix = {
+    ".rst": "restructuredtext",
+    ".txt": "markdown",
+    ".md": "markdown",
+}
 
-html_static_path = ["_static"]
 htmlhelp_basename = project
 
 extensions = [
     "sphinx.ext.autodoc",
+    "sphinx.ext.viewcode",
     "sphinx.ext.mathjax",
     "sphinx.ext.napoleon",
     "sphinx.ext.todo",
-    "sphinx.ext.linkcode",
     "matplotlib.sphinxext.plot_directive",
     "sphinx_markdown_tables",
+    "recommonmark",
+    "sphinx_autodoc_typehints",
 ]
+
+napoleon_use_param = True
 
 
 def setup(app):
@@ -33,12 +38,3 @@ def setup(app):
         True,
     )
     app.add_transform(AutoStructify)
-
-
-def linkcode_resolve(domain, info):
-    if domain != "py":
-        return None
-    if not info["module"]:
-        return None
-    filename = info["module"].replace(".", "/")
-    return "https://github.com/PsiQ/gdsfactory/blob/master/{}.py".format(filename)

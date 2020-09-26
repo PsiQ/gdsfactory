@@ -1,15 +1,19 @@
-import os
 import gdspy
 
 from phidl.device_layout import DeviceReference
 
 import pp
-from pp.component import NAME_TO_DEVICE
+from pp.component import Component
+from pp.name import NAME_TO_DEVICE
 
 
 def import_gds(
-    filename, cellname=None, flatten=False, overwrite_cache=False, snap_to_grid_nm=False
-):
+    filename: str,
+    cellname: None = None,
+    flatten: bool = False,
+    overwrite_cache: bool = False,
+    snap_to_grid_nm: bool = False,
+) -> Component:
     """ returns a Componenent from a GDS file
     """
     filename = str(filename)
@@ -20,15 +24,14 @@ def import_gds(
     if cellname is not None:
         if cellname not in gdsii_lib.cell_dict:
             raise ValueError(
-                "[PHIDL] import_gds() The requested cell (named %s) is not present in file %s"
-                % (cellname, filename)
+                f"import_gds() The requested cell {cellname} is not present in file {filename}"
             )
         topcell = gdsii_lib.cell_dict[cellname]
     elif cellname is None and len(top_level_cells) == 1:
         topcell = top_level_cells[0]
     elif cellname is None and len(top_level_cells) > 1:
         raise ValueError(
-            "[PHIDL] import_gds() There are multiple top-level cells in {}, you must specify `cellname` to select of one of them among {}".format(
+            "import_gds() There are multiple top-level cells in {}, you must specify `cellname` to select of one of them among {}".format(
                 filename, [_c.name for _c in top_level_cells]
             )
         )
@@ -77,7 +80,7 @@ def import_gds(
                         x_reflection=e.x_reflection,
                     )
                     converted_references.append(dr)
-                except:
+                except Exception:
                     print("WARNING - Could not import", e.ref_cell.name)
 
             D.references = converted_references
@@ -102,10 +105,26 @@ def import_gds(
         return topdevice
 
 
+def test_import_gds_flat():
+    gdspath = pp.CONFIG["gdslib"] / "gds" / "mzi2x2.gds"
+    c = import_gds(gdspath, snap_to_grid_nm=5)
+    assert len(c.get_polygons()) == 54
+
+    for x, y in c.get_polygons()[0]:
+        assert pp.drc.on_grid(x, 5)
+        assert pp.drc.on_grid(y, 5)
+
+
+def test_import_gds_hierarchy():
+    c0 = pp.c.mzi2x2()
+    gdspath = pp.write_gds(c0)
+    c = import_gds(gdspath)
+    assert len(c.get_dependencies()) == 3
+
+
 if __name__ == "__main__":
 
-    filename = os.path.join(pp.CONFIG["gdslib"], "mzi2x2.gds")
-    filename = pp.CONFIG["gdslib"] / "mzi2x2.gds"
+    filename = pp.CONFIG["gdslib"] / "gds" / "mzi2x2.gds"
     c = import_gds(filename, snap_to_grid_nm=5)
     print(c)
     pp.show(c)

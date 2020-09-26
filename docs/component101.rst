@@ -37,6 +37,7 @@ Here is a step by step example below generating a waveguide crossing
       c = pp.Component()
 
       # We need an ellipse, this is an existing primitive
+      # c << component is equivalent to c.add_ref(component)
       c << pp.c.ellipse(radii=(r1, r2), layer=pp.LAYER.SLAB150)
 
       a = L + w / 2
@@ -65,9 +66,8 @@ Here is a step by step example below generating a waveguide crossing
       c.add_port(
           name="E0", midpoint=(a, 0), orientation=0, width=wg_width, layer=pp.LAYER.WG
       )
-
-
       return c
+
 
     c = crossing_arm()
     pp.plotgds(c)
@@ -111,15 +111,13 @@ Here is a step by step example below generating a waveguide crossing
       c.add_port(
           name="W0", midpoint=(-a, 0), orientation=180, width=wg_width, layer=pp.LAYER.WG
       )
-
       c.add_port(
           name="E0", midpoint=(a, 0), orientation=0, width=wg_width, layer=pp.LAYER.WG
       )
-
       return c
 
 
-    @pp.ports.deco_rename_ports # This decorator will auto-rename the ports
+    @pp.port.deco_rename_ports # This decorator will auto-rename the ports
     @pp.autoname # This decorator will generate a good name for the component
     def crossing():
      c = pp.Component()

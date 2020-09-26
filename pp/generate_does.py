@@ -1,10 +1,9 @@
-import os
 import sys
 import collections
 from multiprocessing import Process
 import time
-import hiyapyco
 from pprint import pprint
+from omegaconf import OmegaConf
 
 from pp.placer import save_doe
 from pp.placer import doe_exists
@@ -14,10 +13,10 @@ from pp.placer import load_doe_component_names
 
 from pp.config import CONFIG
 from pp.components import component_type2factory
-from pp.write_doe import write_doe_report
+from pp.write_doe import write_doe_metadata
 from pp.doe import get_settings_list
 
-from pp.logger import LOGGER
+from pp.config import logging
 
 
 def _print(*args, **kwargs):
@@ -38,30 +37,6 @@ def default_component_filter(x):
     return x
 
 
-def _generate_doe_report(doe, component_names, doe_json_root_path=None):
-    if doe_json_root_path is None:
-        doe_json_root_path = os.path.join(CONFIG["build_directory"], "devices")
-
-    doe_name = doe["name"]
-    print("Generating report {}".format(doe_name))
-    description = doe["description"] if "description" in doe else ""
-    test = doe["test"] if "test" in doe else ""
-    analysis = doe["analysis"] if "analysis" in doe else ""
-
-    doe_settings = {"description": description, "test": test, "analysis": analysis}
-    list_settings = doe["list_settings"]
-
-    json_doe_path = os.path.join(doe_json_root_path, doe_name + ".json")
-    # Write the json and md metadata / report
-    write_doe_report(
-        doe_name=doe_name,
-        cell_names=component_names,
-        list_settings=list_settings,
-        doe_settings=doe_settings,
-        json_doe_path=json_doe_path,
-    )
-
-
 def separate_does_from_templates(dicts):
     type_to_dict = {}
 
@@ -69,7 +44,7 @@ def separate_does_from_templates(dicts):
     for name, d in dicts.items():
         if "type" in d.keys():
             template_type = d.pop("type")
-            if not template_type in type_to_dict:
+            if template_type not in type_to_dict:
                 type_to_dict[template_type] = {}
             type_to_dict[template_type][name] = d
         else:
@@ -85,8 +60,7 @@ def update_dicts_recurse(target_dict, default_dict):
         if k not in target_dict:
             target_dict[k] = v
         else:
-            vtype = type(target_dict[k])
-            if vtype == dict or vtype == collections.OrderedDict:
+            if isinstance(target_dict[k], (dict, collections.OrderedDict)):
                 target_dict[k] = update_dicts_recurse(target_dict[k], default_dict[k])
     return target_dict
 
@@ -97,12 +71,11 @@ def save_doe_use_template(doe, doe_root_path=None):
     """
     doe_name = doe["name"]
     doe_template = doe["doe_template"]
-    if doe_root_path is None:
-        doe_root_path = CONFIG["cache_doe_directory"]
-    doe_dir = os.path.join(doe_root_path, doe_name)
-    if not os.path.exists(doe_dir):
-        os.makedirs(doe_dir)
-    content_file = os.path.join(doe_dir, "content.txt")
+    doe_root_path = doe_root_path or CONFIG["cache_doe_directory"]
+    doe_dir = doe_root_path / doe_name
+    doe_dir.mkdir(exist_ok=True)
+    content_file = doe_dir / "content.txt"
+
     with open(content_file, "w") as fw:
         fw.write("TEMPLATE: {}".format(doe_template))
 
@@ -111,11 +84,12 @@ def _generate_doe(
     doe,
     component_type2factory=component_type2factory,
     component_filter=default_component_filter,
-    doe_json_root_path=None,
     doe_root_path=None,
+    doe_metadata_path=None,
     regenerate_report_if_doe_exists=False,
     precision=1e-9,
-    logger=LOGGER,
+    logger=logging,
+    **kwargs,
 ):
     doe_name = doe["name"]
     list_settings = doe["list_settings"]
@@ -141,12 +115,19 @@ def _generate_doe(
     component_names = [c.name for c in components]
     save_doe(doe_name, components, doe_root_path=doe_root_path, precision=precision)
 
-    _generate_doe_report(doe, component_names, doe_json_root_path)
+    write_doe_metadata(
+        doe_name=doe["name"],
+        cell_names=component_names,
+        list_settings=doe["list_settings"],
+        doe_settings=kwargs,
+        doe_metadata_path=doe_metadata_path,
+    )
 
 
 def load_does(filepath, defaults={"do_permutation": True, "settings": {}}):
     does = {}
-    data = hiyapyco.load(str(filepath))
+    data = OmegaConf.load(filepath)
+    data = OmegaConf.to_container(data)
     mask = data.pop("mask")
 
     for doe_name, doe in data.items():
@@ -162,22 +143,20 @@ def generate_does(
     filepath,
     component_filter=default_component_filter,
     component_type2factory=component_type2factory,
-    doe_root_path=None,
-    doe_json_root_path=None,
+    doe_root_path=CONFIG["cache_doe_directory"],
+    doe_metadata_path=CONFIG["doe_directory"],
     n_cores=4,
-    logger=LOGGER,
+    logger=logging,
     regenerate_report_if_doe_exists=False,
     precision=1e-9,
 ):
     """ Generates a DOEs of components specified in a yaml file
     allows for each DOE to have its own x and y spacing (more flexible than method1)
+    similar to write_doe
     """
 
-    if doe_root_path is None:
-        doe_root_path = CONFIG["cache_doe_directory"]
-
-    if doe_json_root_path is None:
-        doe_json_root_path = os.path.join(CONFIG["build_directory"], "devices")
+    doe_root_path.mkdir(parents=True, exist_ok=True)
+    doe_metadata_path.mkdir(parents=True, exist_ok=True)
 
     dicts, mask_settings = load_does(filepath)
     does, templates_by_type = separate_does_from_templates(dicts)
@@ -193,18 +172,22 @@ def generate_does(
     list_args = []
     for doe_name, doe in does.items():
         doe["name"] = doe_name
+        component = doe["component"]
+
+        if component not in component_type2factory:
+            raise ValueError(f"{component} not in {component_type2factory.keys()}")
 
         if "template" in doe:
             """
             The keyword template is used to enrich the dictionnary from the template
             """
             templates = doe["template"]
-            if type(templates) != list:
+            if not isinstance(templates, list):
                 templates = [templates]
             for template in templates:
                 try:
                     doe = update_dicts_recurse(doe, dict_templates[template])
-                except:
+                except Exception:
                     print(template, "does not exist")
                     raise
 
@@ -252,7 +235,13 @@ def generate_does(
                     logger.info("Cached - {}".format(doe_name))
                     if regenerate_report_if_doe_exists:
                         component_names = load_doe_component_names(doe_name)
-                        _generate_doe_report(doe, component_names, doe_json_root_path)
+
+                        write_doe_metadata(
+                            doe_name=doe["name"],
+                            cell_names=component_names,
+                            list_settings=doe["list_settings"],
+                            doe_metadata_path=doe_metadata_path,
+                        )
 
             if not _doe_exists:
                 start_times[doe_name] = time.time()
@@ -262,7 +251,7 @@ def generate_does(
                     kwargs={
                         "component_filter": component_filter,
                         "doe_root_path": doe_root_path,
-                        "doe_json_root_path": doe_json_root_path,
+                        "doe_metadata_path": doe_metadata_path,
                         "regenerate_report_if_doe_exists": regenerate_report_if_doe_exists,
                         "precision": precision,
                         "logger": logger,
@@ -272,7 +261,7 @@ def generate_does(
                 does_running += [doe_name]
                 try:
                     p.start()
-                except:
+                except Exception:
                     print("Issue starting process for {}".format(doe_name))
                     print(type(component_type2factory))
                     raise
@@ -305,5 +294,5 @@ def generate_does(
 
 
 if __name__ == "__main__":
-    filepath = CONFIG["samples_path"] / "mask_custom" / "does.yml"
+    filepath = CONFIG["samples_path"] / "mask" / "does.yml"
     generate_does(filepath, precision=2e-9)

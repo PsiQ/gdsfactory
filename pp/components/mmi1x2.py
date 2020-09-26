@@ -1,20 +1,22 @@
 import pp
+from pp.component import Component
+from typing import Any, List, Tuple
 
 __version__ = "0.0.1"
 
 
 @pp.autoname
 def mmi1x2(
-    wg_width=0.5,
-    width_taper=1.0,
-    length_taper=10,
-    length_mmi=5.496,
-    width_mmi=2.5,
-    gap_mmi=0.25,
-    layer=pp.LAYER.WG,
-    layers_cladding=[],
-    cladding_offset=3,
-):
+    wg_width: float = 0.5,
+    width_taper: float = 1.0,
+    length_taper: float = 10.0,
+    length_mmi: float = 5.496,
+    width_mmi: float = 2.5,
+    gap_mmi: float = 0.25,
+    layer: Tuple[int, int] = pp.LAYER.WG,
+    layers_cladding: List[Any] = [],
+    cladding_offset: float = 3.0,
+) -> Component:
     """ mmi 1x2
 
     Args:
@@ -40,7 +42,12 @@ def mmi1x2(
     w_taper = width_taper
 
     taper = pp.c.taper(
-        length=length_taper, width1=wg_width, width2=w_taper, layer=layer
+        length=length_taper,
+        width1=wg_width,
+        width2=w_taper,
+        layer=layer,
+        layers_cladding=layers_cladding,
+        cladding_offset=cladding_offset,
     )
 
     a = gap_mmi / 2 + width_taper / 2
@@ -55,11 +62,11 @@ def mmi1x2(
     mmi.y = 0
 
     for layer_cladding in layers_cladding:
-        dy = w_mmi + 2 * cladding_offset
         clad = c << pp.c.rectangle(
             size=(length_mmi, w_mmi + 2 * cladding_offset), layer=layer_cladding
         )
         clad.y = 0
+        c.absorb(clad)
 
     # For each port on the MMI rectangle
     for port_name, port in mmi.ports.items():
@@ -72,8 +79,11 @@ def mmi1x2(
 
         # Add the taper port
         c.add_port(name=port_name, port=taper_ref.ports["1"])
+        c.absorb(taper_ref)
 
     c.move(origin=c.ports["W0"].position, destination=(0, 0))
+    c.simulation_settings = dict(port_width=1.5e-6)
+    c.absorb(mmi)
 
     return c
 
@@ -102,6 +112,7 @@ def mmi1x2_biased(
 if __name__ == "__main__":
     c = mmi1x2()
     print(c.ports)
+    # print(c.get_ports_array())
     # c = mmi1x2_biased()
     # pp.write_to_libary("mmi1x2", width_mmi=10, overwrite=True)
     # print(c.get_optical_ports())

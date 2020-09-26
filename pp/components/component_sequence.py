@@ -1,6 +1,7 @@
-import pp
-from itertools import count
 import hashlib
+from itertools import count
+from typing import Dict, List, Tuple, Union
+from pp.component import Component
 
 
 class SequenceGenerator:
@@ -40,7 +41,7 @@ class SequenceGenerator:
         return self.start_sequence + n * self.repeated_sequence + self.end_sequence
 
 
-def _parse_component_name(name):
+def _parse_component_name(name: str) -> Tuple[str, bool]:
     """
     If the component name has more than one character and starts with "!"
     then we need to flip along the axis given by the input port angle
@@ -60,28 +61,29 @@ def _flip_ref(c_ref, port_name):
 
 
 def component_sequence(
-    sequence,
-    string_to_device_in_out_ports,
-    ports_map={},
-    input_port_name="in",
-    output_port_name="out",
-    start_orientation=0.0,
-    name_prefix=None,
-):
+    sequence: List[str],
+    string_to_device_in_out_ports: Dict[
+        str, Union[Tuple[Component, str, str], Tuple[None, str, str]]
+    ],
+    ports_map: Dict[str, Tuple[str, str]] = {},
+    input_port_name: str = "in",
+    output_port_name: str = "out",
+    start_orientation: float = 0.0,
+    name_prefix: None = None,
+) -> Component:
     """
     This generates a component from a sequence and a dictionnary to interprete each
     symbol in the sequence.
 
-    Args
+    Args:
         sequence: a string or a list of symbols
         string_to_device_in_out_ports: maps symbols to (device, input, output)
         ports_map: (optional) extra port mapping using the convention
             {port_name: (alias_name, port_name)}
 
-    Outputs a component containing the sequence of sub-components
+    Returns:
+        component containing the sequence of sub-components
     instantiated and connected together in the sequence order
-
-    Return type <pp.Component>
 
     """
     # Remove all None devices from the sequence
@@ -102,7 +104,7 @@ def component_sequence(
     def _next_id(name):
         return "{}{}".format(name, next(counters[name]))
 
-    component = pp.Component()
+    component = Component()
 
     # Add first device and input port
     name_start_device, do_flip = _parse_component_name(sequence[0])
@@ -155,5 +157,29 @@ def component_sequence(
         _md5.update(str(string_to_device_in_out_ports).encode())
         _md5.update(str(sequence).encode())
         component.name = "{}_{}".format(name_prefix, _md5.hexdigest())
-
     return component
+
+
+if __name__ == "__main__":
+    import pp
+
+    bend180 = pp.c.bend_circular180()
+    wg_heater = pp.c.waveguide_heater()
+    wg = pp.c.waveguide()
+
+    # Define a map between symbols and (component, input port, output port)
+    string_to_device_in_out_ports = {
+        "A": (bend180, "W0", "W1"),
+        "B": (bend180, "W1", "W0"),
+        "H": (wg_heater, "W1", "E1"),
+        "-": (wg, "W0", "E0"),
+    }
+
+    # Generate a sequence
+    # This is simply a chain of characters. Each of them represents a component
+    # with a given input and and a given output
+
+    sequence = "AB-H-H-H-H-BA"
+    component = pp.c.component_sequence(sequence, string_to_device_in_out_ports)
+    pp.qp(component)
+    pp.show(component)

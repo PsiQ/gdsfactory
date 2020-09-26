@@ -8,6 +8,8 @@ import csv
 
 from pp import CONFIG
 import pp
+from pathlib import PosixPath
+from pp.component import Component
 
 
 def get_component_path(component_name, component_path=CONFIG["gdslib"]):
@@ -27,12 +29,12 @@ def load_component_path(component_name, component_path=CONFIG["gdslib"]):
 
 
 def load_component(
-    component_name,
-    component_path=CONFIG["gdslib"],
-    with_info_labels=True,
-    overwrite_cache=False,
-):
-    """ loads component GDS and ports from CSV file
+    component_name: str,
+    component_path: PosixPath = CONFIG["gdslib"],
+    with_info_labels: bool = True,
+    overwrite_cache: bool = False,
+) -> Component:
+    """ loads GDS, ports (CSV) and metadata (JSON)
     returns a Device
 
     Args:
@@ -57,11 +59,13 @@ def load_component(
     if not with_info_labels:
         for component in list(c.get_dependencies(recursive=True)) + [c]:
             old_label = [
-                l for l in component.labels if l.layer == pp.LAYER.INFO_GEO_HASH
+                label
+                for label in component.labels
+                if label.layer == pp.LAYER.INFO_GEO_HASH
             ]
             if len(old_label) > 0:
-                for l in old_label:
-                    component.labels.remove(l)
+                for label in old_label:
+                    component.labels.remove(label)
 
     """ add ports """
     try:
@@ -69,10 +73,7 @@ def load_component(
             reader = csv.reader(csvfile, delimiter=",", quotechar="|")
             for r in reader:
                 layer_type = int(r[5].strip().strip("("))
-                try:
-                    data_type = int(r[6].strip().strip(")"))
-                except:
-                    data_type = 0
+                data_type = int(r[6].strip().strip(")"))
                 c.add_port(
                     name=r[0],
                     midpoint=[float(r[1]), float(r[2])],
@@ -81,12 +82,13 @@ def load_component(
                     layer=(layer_type, data_type),
                 )
     except Exception:
-        pass
         # print(
-        #     f"Could not find a port file associated with {component_name} in {component_path}"
+        #     f"Could not find a port CSV file for {component_name} in {portspath}"
         # )
-        # print(e)
-        # print()
+        # print(
+        #     "ports follow (name, x, y, width, angle, layer_gds_type, layer_gds_purpose)"
+        # )
+        pass
         # raise (e)
 
     """ add settings """
@@ -95,7 +97,7 @@ def load_component(
             data = json.load(f)
         cell_settings = data["cells"][c.name]
         c.settings.update(cell_settings)
-    except:
+    except Exception:
         pass
         print(f"could not load settings for {c.name} in {jsonpath}")
     return c

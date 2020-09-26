@@ -3,18 +3,18 @@
 """
 
 import json
-import os
+from omegaconf import OmegaConf
 import importlib
 from git import Repo
-from pp.config import logging, load_config, CONFIG, write_config, get_git_hash
+from pp.config import CONFIG, logging, get_git_hash, write_config, conf
 
 
-def update_config_modules(config):
+def update_config_modules(config=conf):
     """ update config with module git hashe and version (for each module in module_requirements section)
     """
-    if config.get("module_requirements"):
+    if config.get("requirements"):
         config.update({"git_hash": get_git_hash(), "module_versions": {}})
-        for module_name in config["module_requirements"]:
+        for module_name in config["requirements"]:
             module = importlib.import_module(module_name)
             config["module_versions"].update(
                 {
@@ -27,47 +27,53 @@ def update_config_modules(config):
     return config
 
 
-def merge_json(config=CONFIG, json_version=6):
-    """ Merge several JSON files from mask_config_directory
-    requires a config.yml in the root of the mask directory
+def merge_json(
+    doe_directory=CONFIG["doe_directory"],
+    extra_directories=[CONFIG["gds_directory"]],
+    jsonpath=CONFIG["mask_directory"] / "metadata.json",
+    json_version=6,
+    config=conf,
+):
+    """ Merge several JSON files from config.yml
+    in the root of the mask directory, gets mask_name from there
 
     Args:
         mask_config_directory: defaults to current working directory
-        json_version: for maskhub parser
-        jsons_filepaths: if we want to supply individual json files
+        json_version:
 
     """
-    if config.get("mask") is None:
-        raise ValueError(f"mask config missing from {config['cwd']}")
-
-    config = update_config_modules(config)
-
-    mask_name = config["mask"]["name"]
-    jsons_directory = config["gds_directory"]
-    json_out_path = config["mask_directory"] / (mask_name + ".json")
-
-    cells = {}
-    does = {}
     logging.debug("Merging JSON files:")
+    cells = {}
+    config = config or {}
+    update_config_modules(config=config)
 
-    for filename in jsons_directory.glob("*.json"):
-        logging.debug(filename)
-        with open(filename, "r") as f:
-            data = json.load(f)
-            if data.get("type") == "doe":
-                does[data["name"]] = data
-            else:
+    for directory in extra_directories + [doe_directory]:
+        for filename in directory.glob("*/*.json"):
+            logging.debug(filename)
+            with open(filename, "r") as f:
+                data = json.load(f)
                 cells.update(data.get("cells"))
 
-    config.update({"json_version": json_version, "cells": cells, "does": does})
-    write_config(config, json_out_path)
-    logging.info("Wrote {}".format(os.path.relpath(json_out_path)))
-    return config
+    does = {d.stem: json.loads(open(d).read()) for d in doe_directory.glob("*.json")}
+    metadata = dict(
+        json_version=json_version,
+        cells=cells,
+        does=does,
+        config=OmegaConf.to_container(config),
+    )
+
+    write_config(metadata, jsonpath)
+    print(f"Wrote  metadata in {jsonpath}")
+    logging.info(f"Wrote  metadata in {jsonpath}")
+    return metadata
 
 
 if __name__ == "__main__":
-    config_path = CONFIG["samples_path"] / "mask" / "config.yml"
-    config = load_config(config_path)
-    config = merge_json(config)
+    d = merge_json()
+    print(d)
+
     # print(config["module_versions"])
-    print(config)
+    # pprint(d['does'])
+
+    # with open(jsonpath, "w") as f:
+    #     f.write(json.dumps(d, indent=2))

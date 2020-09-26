@@ -11,7 +11,8 @@ import click
 import git
 
 from pp import CONFIG
-from pp.logger import LOGGER
+from pp.layers import LAYER
+from pp.config import logging
 from pp import klive
 from pp.config import print_config
 
@@ -25,13 +26,13 @@ from pp.mask.write_labels import write_labels
 
 import pp.build as pb
 
-from pp.autoplacer.yaml_placer import place_from_yaml
 from pp.tests.test_factory import lock_components_with_changes
 
 
-VERSION = "1.1.5"
+VERSION = "1.3.3"
 log_directory = CONFIG.get("log_directory")
 cwd = pathlib.Path.cwd()
+LAYER_LABEL = LAYER.LABEL
 
 
 def shorten_command(cmd):
@@ -42,7 +43,7 @@ def shorten_command(cmd):
 
 def run_command(command):
     """ Run a command and keep track of some context """
-    LOGGER.info("Running `{}`".format(command))
+    logging.info("Running `{}`".format(command))
 
     # Run the process and handle errors
     time0 = time.time()
@@ -57,16 +58,16 @@ def run_command(command):
         message = "`{}` ran without errors in {:.2f}s.".format(
             shorten_command(command), total_time
         )
-        LOGGER.info(message)
+        logging.info(message)
         if stdout.strip():
             message = "Output of `{}`:".format(shorten_command(command))
-            LOGGER.info(message)
-            LOGGER.info(stdout.strip(), extra={"raw": True})
+            logging.info(message)
+            logging.info(stdout.strip(), extra={"raw": True})
     else:
         message = "Error in `{}`".format(shorten_command(command))
-        LOGGER.error(message)
+        logging.error(message)
         raw = stdout.strip() + "\n" + stderr.strip()
-        LOGGER.error(raw, extra={"raw": True})
+        logging.error(raw, extra={"raw": True})
 
     return command, process.returncode
 
@@ -160,12 +161,12 @@ def library_lock(dirname):
     """ lock component with changes """
 
     if dirname:
-        path_directory = cwd / dirname
+        path_library = cwd / dirname
     else:
-        path_directory = CONFIG["gdslib"]
+        path_library = CONFIG["gdslib"]
 
-    if os.path.isdir(path_directory):
-        lock_components_with_changes(path_directory=path_directory)
+    if os.path.isdir(path_library):
+        lock_components_with_changes(path_library=path_library)
 
 
 """
@@ -198,52 +199,34 @@ def build_devices(regex):
 @click.command(name="build_does")
 def build_does():
     """ Build does defined in doe.yml"""
+    print("this is deprecated")
     import_custom_doe_factories()
     # write_doe_from_yaml()
     pb.build_does()
 
 
 @click.command(name="write_metadata")
-def mask_merge():
+@click.argument("label_layer", required=False, default=LAYER_LABEL)
+def mask_merge(label_layer):
     """ merge JSON/Markdown from build/devices into build/mask"""
 
-    gdspath = CONFIG["mask"]["gds"]
-    write_labels(gdspath=gdspath)
+    gdspath = CONFIG["mask_gds"]
+    write_labels(gdspath=gdspath, label_layer=label_layer)
 
     merge_json()
     merge_markdown()
-    merge_test_metadata(gdspath=gdspath)
+    merge_test_metadata(config_path=CONFIG["config_path"])
 
 
 @click.command(name="write_labels")
 @click.argument("gdspath", default=None)
-@click.argument("label_layer", required=False, default=66)
-@click.argument("label_purpose", required=False, default=0)
-def write_mask_labels(gdspath, label_layer=66, label_purpose=0):
+@click.argument("label_layer", required=False, default=LAYER_LABEL)
+def write_mask_labels(gdspath, label_layer):
     """ find test and measurement labels """
     if gdspath is None:
-        gdspath = CONFIG["mask"]["gds"]
+        gdspath = CONFIG["mask_gds"]
 
-    write_labels(gdspath=gdspath, label_layer=label_layer, label_purpose=label_purpose)
-
-
-@click.command(name="write")
-def write_mask():
-    """ build and place does from config.yml """
-    gdspath = CONFIG["mask"]["gds"]
-
-    pb.build_does()
-    # generate_does()
-
-    top_level = place_from_yaml(CONFIG["config_path"])
-    top_level.write(str(gdspath))
-
-    write_labels(gdspath=gdspath)
-
-    merge_json()
-    merge_markdown()
-    merge_test_metadata(gdspath=gdspath)
-    return gdspath
+    write_labels(gdspath=gdspath, label_layer=label_layer)
 
 
 """
@@ -295,7 +278,6 @@ mask.add_command(build_devices)
 mask.add_command(build_does)
 mask.add_command(mask_merge)
 mask.add_command(write_mask_labels)
-mask.add_command(write_mask)
 
 cli.add_command(config_get)
 cli.add_command(library)

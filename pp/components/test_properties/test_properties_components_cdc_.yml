@@ -1,0 +1,22 @@
+angle: 0.5235987755982988
+contradc_wgt: None
+dc: 0.5
+direction: EAST
+dw_bot: None
+dw_top: None
+fin_size:
+- 0.2
+- 0.05
+fins: 'False'
+function_name: cdc
+gap: 0.5
+input_bot: 'False'
+length: 30.0
+module: pp.components.cdc
+name: cdc
+period: 0.22
+port_midpoint:
+- 0
+- 0
+width_bot: 0.75
+width_top: 2.0

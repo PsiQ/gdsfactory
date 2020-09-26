@@ -2,8 +2,8 @@ import numpy as np
 import pp
 from pp.routing.connect import connect_strip
 from pp.routing.connect import connect_elec
-from pp.ports.utils import is_electrical_port
-from pp.ports.utils import flipped
+from pp.port import is_electrical_port
+from pp.port import flipped
 
 BEND_RADIUS = pp.config.BEND_RADIUS
 
@@ -44,7 +44,7 @@ def route_ports_to_side(
         return [], []
 
     # Accept list of ports, Component or dict of ports
-    if type(ports) == type({}):
+    if isinstance(ports, dict):
         ports = list(ports.values())
 
     elif isinstance(ports, pp.Component) or isinstance(ports, pp.ComponentReference):
@@ -334,11 +334,9 @@ def connect_ports_to_y(
     xs = [p.x for p in list_ports]
     ys = [p.y for p in list_ports]
 
-    if x0_right == None:
-        x0_right = max(xs) + a
+    x0_right = x0_right or max(xs) + a
     x0_right += extend_right
-    if x0_left == None:
-        x0_left = min(xs) - a
+    x0_left = x0_left or min(xs) - a
     x0_left -= extend_left
 
     if y == "north":

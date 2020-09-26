@@ -1,12 +1,13 @@
-import pp
+from typing import Dict, List
+from pp.port import Port
 
 
-def flip(port):
+def flip(port: Port) -> Port:
     """ Flip a phidl Port """
-    return pp.Port(port.name, port.midpoint, port.width, port.orientation + 180)
+    return Port(port.name, port.midpoint, port.width, port.orientation + 180)
 
 
-def direction_ports_from_list_ports(optical_ports):
+def direction_ports_from_list_ports(optical_ports: List[Port]) -> Dict[str, List[Port]]:
     direction_ports = {x: [] for x in ["E", "N", "W", "S"]}
     for p in optical_ports:
         p.angle = (p.angle + 360.0) % 360

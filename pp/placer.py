@@ -1,4 +1,6 @@
-""" YAML defines component DOE settings and placement
+""" gdspy based placer
+
+YAML defines component DOE settings and placement
 
 .. code:: yaml
 
@@ -29,12 +31,11 @@
 
 import os
 import sys
-import hiyapyco
+from omegaconf import OmegaConf
 
 import pp
 from pp.doe import get_settings_list, load_does
-from pp.write_doe import write_doe_report
-from pp.config import CONFIG, load_config
+from pp.config import CONFIG
 from pp.components import component_type2factory
 from pp.write_component import write_gds
 from pp.write_component import write_component_report
@@ -72,15 +73,7 @@ def placer_grid_cell_refs(
 
 
 def pack_horizontal(
-    cells,
-    row_ids=None,
-    margin=20.0,
-    x0=0,
-    y0=0,
-    align_x="W",
-    align_y="S",
-    margin_x=None,
-    margin_y=None,
+    cells, row_ids=None, x0=0, y0=0, align_x="W", align_y="S", margin_x=20, margin_y=20,
 ):
     """
     Args:
@@ -93,14 +86,7 @@ def pack_horizontal(
     """
     heights = [c.size_info.height for c in cells]
 
-    if margin_x == None:
-        margin_x = margin
-
-    if margin_y == None:
-        margin_y = margin
-
-    if row_ids == None:
-        row_ids = [0] * len(cells)
+    row_ids = row_ids or [0] * len(cells)
 
     if len(cells) != len(row_ids):
         raise ValueError(
@@ -163,15 +149,7 @@ def pack_horizontal(
 
 
 def pack_vertical(
-    cells,
-    col_ids=None,
-    margin=20.0,
-    x0=0,
-    y0=0,
-    align_x="W",
-    align_y="S",
-    margin_x=None,
-    margin_y=None,
+    cells, col_ids=None, x0=0, y0=0, align_x="W", align_y="S", margin_x=20, margin_y=20,
 ):
     """
     Args:
@@ -183,15 +161,7 @@ def pack_vertical(
     returns a list of cell references
     """
     widths = [c.size_info.width for c in cells]
-
-    if margin_x == None:
-        margin_x = margin
-
-    if margin_y == None:
-        margin_y = margin
-
-    if col_ids == None:
-        col_ids = [0] * len(cells)
+    col_ids = col_ids or [0] * len(cells)
 
     if len(cells) != len(col_ids):
         raise ValueError(
@@ -277,7 +247,7 @@ def load_placer_with_does(filepath, defaults={"do_permutation": True}):
 
     """
     does = {}
-    data = hiyapyco.load(filepath)
+    data = OmegaConf.load(filepath)
 
     placer_info = data.pop("placer")
     component_placement = data.pop("placement")
@@ -335,7 +305,7 @@ def save_doe(doe_name, components, doe_root_path=None, precision=1e-9):
 
     for c in components:
         gdspath = os.path.join(doe_dir, c.name + ".gds")
-        write_gds(c, gdspath=gdspath, add_port_pins=False, precision=precision)
+        write_gds(c, gdspath=gdspath, precision=precision)
         write_component_report(c, json_path=gdspath[:-4] + ".json")
 
 
@@ -395,91 +365,14 @@ def doe_exists(doe_name, list_settings, doe_root_path=None):
     return False
 
 
-def generate_does(
-    config=CONFIG,
-    component_filter=lambda x: x,
-    component_type2factory=component_type2factory,
-    doe_root_path=CONFIG["cache_doe_directory"],
-    doe_json_root_path=CONFIG["build_directory"] / "devices",
-    precision=1e-9,
-):
-    """ Returns a Component composed of DOEs/components given in a yaml file
-    allows for each DOE to have its own x and y spacing (more flexible than method1)
-
-    Not sure why we need this function. We should use build_does_instead
-
-    Maybe delete this generate_does, as it's already defined in pp.generate_does
-    """
-
-    does = load_does(config)
-    mask_settings = config.get("mask")
-
-    default_use_cached_does = (
-        mask_settings["cache"] if "cache" in mask_settings else False
-    )
-
-    for doe_name, doe in does.items():
-        list_settings = doe["settings"]
-
-        # If using cached DOE, and if the doe exists, then we are done
-        use_cached_does = (
-            default_use_cached_does if "cache" not in doe else doe["cache"]
-        )
-
-        _doe_exists = False
-        if use_cached_does:
-            if doe_exists(doe_name, list_settings):
-                component_names = load_doe_component_names(doe_name)
-                _doe_exists = True
-                print("{} - using cache".format(doe_name))
-
-        if not _doe_exists:
-            # Otherwise generate each component using the component factory
-            component_type = doe["component"]
-            print("{} - Generating components...".format(doe_name))
-            if "generator" in doe:
-                components = _gen_components_from_generator(
-                    doe["generator"],
-                    component_type,
-                    list_settings,
-                    component_type2factory=component_type2factory,
-                )
-            else:
-                components = _gen_components(
-                    component_type,
-                    list_settings,
-                    component_type2factory=component_type2factory,
-                )
-
-            components = [component_filter(c) for c in components]
-            component_names = [c.name for c in components]
-            save_doe(
-                doe_name, components, doe_root_path=doe_root_path, precision=precision
-            )
-
-        description = doe["description"] if "description" in doe else ""
-        test = doe["test"] if "test" in doe else ""
-        analysis = doe["analysis"] if "analysis" in doe else ""
-
-        doe_settings = {"description": description, "test": test, "analysis": analysis}
-
-        json_doe_path = os.path.join(doe_json_root_path, doe_name + ".json")
-        # Write the json and md metadata / report
-        write_doe_report(
-            doe_name=doe_name,
-            cell_names=component_names,
-            list_settings=list_settings,
-            doe_settings=doe_settings,
-            json_doe_path=json_doe_path,
-        )
-
-
-def component_grid_from_yaml(config, precision=1e-9):
+def component_grid_from_yaml(filepath, precision=1e-9):
     """ Returns a Component composed of DOEs/components given in a yaml file
     allows for each DOE to have its own x and y spacing (more flexible than method1)
     """
-    mask_settings = config["mask"]
-    does = load_does(config)
+    input_does = OmegaConf.load(str(filepath))
+    mask_settings = input_does["mask"]
+    does = load_does(filepath)
+
     placed_doe = None
     placed_does = {}
     if mask_settings.get("name"):
@@ -615,7 +508,7 @@ def component_grid_from_yaml(config, precision=1e-9):
         placed_does[doe_name] = placed_doe
 
         # # Write the json and md metadata / report
-        # write_doe_report(
+        # write_doe_metadata(
         # doe_name=doe_name,
         # cells = placed_components,
         # list_settings=list_settings,
@@ -664,12 +557,5 @@ def _gen_components_from_generator(
     return components
 
 
-def test_component_grid_method2():
-    config = load_config(CONFIG["samples_path"] / "placer2" / "config.yml")
-    component = component_grid_from_yaml(config)
-    pp.show(component)
-
-
 if __name__ == "__main__":
-    test_component_grid_method2()
-    # test_load_placer()
+    pass

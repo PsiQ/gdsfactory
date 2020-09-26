@@ -1,0 +1,3 @@
+function_name: ring_double_bus
+module: pp.components.ring_double_bus
+name: ring_double_bus

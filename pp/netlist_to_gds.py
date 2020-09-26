@@ -1,7 +1,10 @@
+from typing import Dict, List, Tuple, Union
 import numpy as np
+from numpy import ndarray
+
 from pp.component import Component
 from pp.component import ComponentReference
-from pp.ports.utils import select_electrical_ports
+from pp.port import select_electrical_ports
 
 IDENTITY = (0, False)
 R90 = (90, False)
@@ -29,16 +32,14 @@ STR_TO_TRANSFORMATION_MAP = {v: k for k, v in TRANSFORMATION_MAP.items()}
 def get_elec_ports_from_component_names(component, names=[]):
     """
     Args
-        component <pp.Component>; should have component.info["components"]
+        component <pp.Component>; should have component.info["instances"]
     """
     e_ports = {}
 
     for name in names:
         _ports = {
             "{}_{}".format(name, p.name): p
-            for p in select_electrical_ports(
-                component.info["components"][name]
-            ).values()
+            for p in select_electrical_ports(component.info["instances"][name]).values()
         }
         e_ports.update(_ports)
 
@@ -49,9 +50,13 @@ def get_elec_ports_from_component_names(component, names=[]):
     return e_ports
 
 
-def gen_sref(component, transformation_name, port_name, position):
-    """
-    """
+def gen_sref(
+    component: Component,
+    transformation_name: str,
+    port_name: str,
+    position: Union[Tuple[int, int], ndarray],
+) -> ComponentReference:
+    """"""
 
     if transformation_name not in TRANSFORMATION_MAP.values():
         raise ValueError(
@@ -73,27 +78,32 @@ def gen_sref(component, transformation_name, port_name, position):
             )
         port_position = component.ports[port_name].midpoint
 
-    device_ref = ComponentReference(device=component, origin=(0, 0))
+    ref = ComponentReference(component=component, origin=(0, 0))
 
     if x_reflection:  # Vertical mirror: Reflection across x-axis
         y0 = port_position[1]
-        device_ref.reflect(p1=(0, y0), p2=(1, y0))
+        ref.reflect(p1=(0, y0), p2=(1, y0))
 
     if rotation_angle != 0:
-        device_ref.rotate(rotation_angle, center=port_position)
+        ref.rotate(rotation_angle, center=port_position)
 
     translation = np.array(position - port_position)
 
-    device_ref.move(destination=translation)
+    ref.move(destination=translation)
 
-    return device_ref
+    return ref
 
 
-def netlist_to_component(components, connections, ports_map, position=(0, 0)):
+def netlist_to_component(
+    instances: Dict[str, Tuple[Component, str]],
+    connections: List[Tuple[str, str, str, str]],
+    ports_map: Dict[str, Tuple[str, str]] = None,
+    position: Tuple[float, float] = (0.0, 0.0),
+) -> Component:
     """
     Args:
-        components:
-            list of (component_id <str>, component <Component>, transform <tuple>)
+        instances:
+            list of (instance_id <str>, component <Component>, transform <tuple>)
 
         connections:
             list of (component_id1, port_name1, component_id2, port_name2)
@@ -101,10 +111,9 @@ def netlist_to_component(components, connections, ports_map, position=(0, 0)):
             has already been placed (except for the first component)
 
         ports_map:
-            {port_name: (component_id, port_name)}
+            {port_name: (instance_id, port_name)}
 
-    Returns: component
-    the component has component.netlist
+    Returns: component with netlist stored in component.netlist
 
     [
         {
@@ -126,7 +135,7 @@ def netlist_to_component(components, connections, ports_map, position=(0, 0)):
             "rank": 1,
             "type": "COMPOUND",
             "settings": {},
-            "components": [
+            "instances": [
                 "CP1, CP2x2, None, None, 0.0, 0.0",
                 "WG1, WG_CAVITY, None, None, 0.0, 0.0",
             ],
@@ -137,31 +146,33 @@ def netlist_to_component(components, connections, ports_map, position=(0, 0)):
 
     mirror, rotation, x, y
     """
+
+    print("netlist_to_component is deprecated! use pp.componet_from_yaml instead")
     if len(connections) == 0:
         raise ValueError(
-            "Error number of connections", len(connections), len(components)
+            "Error number of connections", len(connections), len(instances)
         )
 
-    component_id, cmp_port, _, _ = connections[0]
-
-    component, transform_name = components[component_id]
+    instance_id, port, _, _ = connections[0]
+    assert instance_id in instances, f"{instance_id} not in {list(instances.keys())}"
+    component, transform_name = instances[instance_id]
 
     # First component reference
-    sref_start = gen_sref(component, transform_name, cmp_port, position)
-    cmp_name_to_sref = {component_id: sref_start}
+    sref_start = gen_sref(component, transform_name, port, position)
+    cmp_name_to_sref = {instance_id: sref_start}
 
-    # Iterate over all connections: create and place components
+    # Iterate over all connections: create and place instances
     for cmp1_name, port1, cmp2_name, port2 in connections:
         if cmp1_name not in cmp_name_to_sref:
             cmp1_name, port1, cmp2_name, port2 = cmp2_name, port2, cmp1_name, port1
 
         if cmp2_name not in cmp_name_to_sref:
-            component, transform_name = components[cmp2_name]
+            component, transform_name = instances[cmp2_name]
 
             _ref = cmp_name_to_sref[cmp1_name]
             try:
                 position = _ref.ports[port1].midpoint
-            except:
+            except Exception:
                 print("{} has not port {}".format(cmp1_name, port1))
 
             sref = gen_sref(component, transform_name, port2, position)
@@ -170,24 +181,28 @@ def netlist_to_component(components, connections, ports_map, position=(0, 0)):
 
     c = Component()
     c.add(list(cmp_name_to_sref.values()))
-    for port_name, (cmp_id, internal_port_name) in ports_map.items():
-        c.add_port(port_name, port=cmp_name_to_sref[cmp_id].ports[internal_port_name])
+
+    if ports_map:
+        for port_name, (cmp_id, internal_port_name) in ports_map.items():
+            component_ref = cmp_name_to_sref[cmp_id]
+            component = component_ref.parent
+            assert internal_port_name in component.ports, (
+                f"{internal_port_name} not in {component_ref.ports.keys()} for"
+                f" {component}"
+            )
+            port = component_ref.ports[internal_port_name]
+            c.add_port(port_name, port=port)
+            ports_map = {k: ", ".join(v) for k, v in ports_map.items()}
 
     # Set aliases
     for cmp_id, ref in cmp_name_to_sref.items():
         c[cmp_id] = ref
 
-    c.info["components"] = cmp_name_to_sref
-    # c.components = components
-    # c.connections = connections
-    # c.ports_map = ports_map
-    # c.cells = {
-    #     cname: c for cname, (c, transf) in components.items()
-    # }  # "CP1": (cpl, "None"),
+    c.info["instances"] = cmp_name_to_sref
 
     # add leaf cells to netlist
     netlist = []
-    for name, (component, _) in components.items():
+    for name, (component, _) in instances.items():
         netlist.append(
             dict(
                 name=name,
@@ -204,18 +219,27 @@ def netlist_to_component(components, connections, ports_map, position=(0, 0)):
             type="COMPOUND",
             settings={},
             connections=[", ".join(i) for i in connections],
-            ports={k: ", ".join(v) for k, v in ports_map.items()},
+            ports=ports_map,
         )
     )
     c.netlist = netlist
     return c
 
 
-if __name__ == "__main__":
-    import pp
+def test_netlist_ring():
     from pp.components.ring_single_bus import ring_single_bus_netlist
 
-    components, connections, ports_map = ring_single_bus_netlist()
-    c = netlist_to_component(components, connections, ports_map)
-    print(c.netlist)
+    instances, connections, ports_map = ring_single_bus_netlist()
+    c = netlist_to_component(instances, connections, ports_map)
+    # print((c.get_dependencies()))
+    # print(len(c.get_dependencies()))
+    assert len(c.get_dependencies()) == 4
+    return c
+
+
+if __name__ == "__main__":
+    import pp
+
+    # print(c.netlist)
+    c = test_netlist_ring()
     pp.show(c)

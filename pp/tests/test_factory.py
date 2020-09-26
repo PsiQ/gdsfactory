@@ -2,18 +2,29 @@
 Builds a library and compares the gdshash of the new built GDS with the reference ones
 """
 
-
 import os
 import shutil
+import pytest
 from jsondiff import diff
 import git
 
 import gdspy
 import pp
-from pp.components import component_type2factory
+from pp.components import component_type2factory, _components
 from pp import CONFIG
 
-path_library = CONFIG["gdslib"]
+path_library = CONFIG["gds"]
+
+_components = _components - set(
+    [
+        "compass",
+        "component_lattice",
+        "grating_coupler_elliptical2",
+        "grating_coupler_tree",
+        "bezier",
+        "spiral_circular",
+    ]
+)
 
 
 def pull_library(path_library=path_library):
@@ -31,19 +42,22 @@ def lock_component(
     component_type,
     component_type2factory=component_type2factory,
     path_library=path_library,
-    add_port_pins=False,
     flatten=True,
+    with_settings_label=False,
 ):
     """ locks a component from the factory into the GDS lib
 
     TODO: flattening makes it slower for big mask
     """
     try:
-        c = component_type2factory[component_type]()
+        c = component_type2factory[component_type](cache=False, pins=False)
         if flatten:
             c.flatten()
         gdspath = path_library / (component_type + ".gds")
-        pp.write_component(c, gdspath=gdspath, add_port_pins=add_port_pins)
+        pp.write_component(
+            c, gdspath=gdspath, with_settings_label=with_settings_label,
+        )
+        assert gdspath.exists()
         return c
     except Exception as e:
         error = f"error building {component_type}"
@@ -51,12 +65,14 @@ def lock_component(
 
 
 def lock_components_with_changes(
-    component_type2factory=component_type2factory, path_library=path_library
+    components=_components,
+    component_type2factory=component_type2factory,
+    path_library=path_library,
 ):
 
     """  locks only components whose hash changed
     """
-    for component_type, _ in component_type2factory.items():
+    for component_type in components:
         same_hash = compare_component_hash(
             component_type=component_type,
             component_type2factory=component_type2factory,
@@ -82,27 +98,26 @@ def print_components_with_changes(
             component_type2factory=component_type2factory,
             path_library=path_library,
         )
-        if same_hash:
-            print(f"[V] {component_type}")
-        else:
+        if not same_hash:
             print(f"[X] {component_type} changed hash")
 
 
-def test_all_components(
-    component_type2factory=component_type2factory, path_library=CONFIG["gdslib"]
+@pytest.mark.parametrize("component_type", _components)
+@pytest.mark.noautofixt
+def test_components(
+    component_type,
+    component_type2factory=component_type2factory,
+    path_library=path_library,
 ):
-    # pull_library(path_library)
-
-    for component_type, _ in component_type2factory.items():
-        assert compare_component_hash(
-            component_type=component_type,
-            component_type2factory=component_type2factory,
-            path_library=path_library,
-        ), f"{component_type} changed from component locked in the library {path_library}"
+    assert compare_component_hash(
+        component_type=component_type,
+        component_type2factory=component_type2factory,
+        path_library=path_library,
+    ), f"{component_type} changed from component locked in the library {path_library}"
 
 
 def rebuild_library(
-    component_type2factory=component_type2factory, path_library=CONFIG["gdslib"]
+    component_type2factory=component_type2factory, path_library=path_library
 ):
     """ saves all component_type2factory components to the gdslib library
     """
@@ -129,7 +144,7 @@ def _copy_component(src, dest):
 def compare_component_hash(
     component_type,
     component_type2factory=component_type2factory,
-    path_library=CONFIG["gdslib"],
+    path_library=path_library,
     path_test=CONFIG["gdslib_test"],
 ):
     """ raises Exception if component has changed from the library
@@ -172,7 +187,7 @@ def compare_component_hash(
 
     same_hash = gdshash_new == gdshash_library
     if not same_hash:
-        error_hash = f"`{component_library}` hash(GDS) {gdspath_new} differs from the library {gdspath_library}, showing both cells in Klayout \n"
+        error_hash = f"`{component_library}` hash(GDS) {gdspath_new} differs from the library {gdspath_library}, showing both cells in Klayout \n library = {component_type2factory.keys()}"
         error_settings = f"different settings: {diff(component_library.get_settings(), component_new.get_settings())}"
         c = pp.Component(name=component_type)
         c << component_new
@@ -184,11 +199,12 @@ def compare_component_hash(
 
 
 if __name__ == "__main__":
-    # lock_components_with_changes()
+    # for component in list(_components):
+    #     test_components(component)
+    lock_components_with_changes()
     # lock_component("grating_coupler_tree")
     # compare_component_hash("grating_coupler_tree")
-    # test_all_components()
-    rebuild_library()
+    # rebuild_library()
     # lock_component("waveguide")
     # compare_component_hash("waveguide")
     # lock_component("ring_double_bus")

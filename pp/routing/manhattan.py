@@ -1,9 +1,14 @@
 import uuid
 import numpy as np
 from pp.components import waveguide
+from pp.name import clean_name
+from pp.component import Component, ComponentReference
 
 import pp
 from pp.geo_utils import angles_deg
+from numpy import bool_, float64, ndarray
+from typing import Callable, Dict, List, Optional, Tuple
+from pp.port import Port
 
 TOLERANCE = 0.0001
 DEG2RAD = np.pi / 180
@@ -12,11 +17,11 @@ RAD2DEG = 1 / DEG2RAD
 O2D = {0: "East", 180: "West", 90: "North", 270: "South"}
 
 
-def _get_ports_facing(ports, orientation=0):
+def _get_ports_facing(ports: Dict[str, Port], orientation: int = 0) -> List[Port]:
     return [p for p in ports.values() if p.orientation == orientation]
 
 
-def _get_unique_port_facing(ports, orientation=0):
+def _get_unique_port_facing(ports: Dict[str, Port], orientation: int = 0) -> List[Port]:
     ports = _get_ports_facing(ports, orientation)
 
     if len(ports) > 1:
@@ -33,7 +38,7 @@ def _get_unique_port_facing(ports, orientation=0):
     return ports
 
 
-def _get_bend_ports(bend):
+def _get_bend_ports(bend: Component) -> List[Port]:
     """
     Any standard bend/corner has two ports: one facing west and one facing north
     Returns these two ports in this order
@@ -47,7 +52,7 @@ def _get_bend_ports(bend):
     return p_w + p_n
 
 
-def _get_straight_ports(straight):
+def _get_straight_ports(straight: Component) -> List[Port]:
     """
     Any standard straight wire/waveguide has two ports:
     one facing west and one facing east
@@ -61,7 +66,13 @@ def _get_straight_ports(straight):
     return p_w + p_e
 
 
-def gen_sref(structure, rotation_angle, x_reflection, port_name, position):
+def gen_sref(
+    structure: Component,
+    rotation_angle: int,
+    x_reflection: bool,
+    port_name: str,
+    position: ndarray,
+) -> ComponentReference:
     """
     place sref of `port_name` of `structure` at `position`
     # Keep this convention, otherwise phidl port transform won't work
@@ -76,28 +87,28 @@ def gen_sref(structure, rotation_angle, x_reflection, port_name, position):
     else:
         port_position = structure.ports[port_name].midpoint
 
-    device_ref = pp.ComponentReference(device=structure, origin=(0, 0))
+    ref = pp.ComponentReference(component=structure, origin=(0, 0))
 
     if x_reflection:  # Vertical mirror: Reflection across x-axis
         y0 = port_position[1]
-        device_ref.reflect(p1=(0, y0), p2=(1, y0))
+        ref.reflect(p1=(0, y0), p2=(1, y0))
 
-    device_ref.rotate(rotation_angle, center=port_position)
+    ref.rotate(rotation_angle, center=port_position)
 
-    device_ref.move(port_position, position)
+    ref.move(port_position, position)
 
-    return device_ref
+    return ref
 
 
-def _is_vertical(p0, p1):
+def _is_vertical(p0: ndarray, p1: ndarray) -> bool_:
     return np.abs(p0[0] - p1[0]) < TOLERANCE
 
 
-def _is_horizontal(p0, p1):
+def _is_horizontal(p0: ndarray, p1: ndarray) -> bool_:
     return np.abs(p0[1] - p1[1]) < TOLERANCE
 
 
-def get_straight_distance(p0, p1):
+def get_straight_distance(p0: ndarray, p1: ndarray) -> float64:
     if _is_vertical(p0, p1):
         return np.abs(p0[1] - p1[1])
     if _is_horizontal(p0, p1):
@@ -106,7 +117,12 @@ def get_straight_distance(p0, p1):
     raise ValueError("Waveguide {} {} is not manhattan".format(p0, p1))
 
 
-def transform(points, translation=(0, 0), angle_deg=0, x_reflection=False):
+def transform(
+    points: ndarray,
+    translation: ndarray = (0, 0),
+    angle_deg: float64 = 0,
+    x_reflection: bool = False,
+) -> ndarray:
     """
     Args:
         points (np.array of shape (N,2) ): points to be transformed
@@ -133,7 +149,12 @@ def transform(points, translation=(0, 0), angle_deg=0, x_reflection=False):
     return pts
 
 
-def reverse_transform(points, translation=(0, 0), angle_deg=0, x_reflection=False):
+def reverse_transform(
+    points: ndarray,
+    translation: ndarray = (0, 0),
+    angle_deg: float64 = 0,
+    x_reflection: bool = False,
+) -> ndarray:
     """
     Args:
         points (np.array of shape (N,2) ): points to be transformed
@@ -163,18 +184,18 @@ def reverse_transform(points, translation=(0, 0), angle_deg=0, x_reflection=Fals
 
 
 def _generate_route_manhattan_points(
-    input_port,
-    output_port,
-    bs1,
-    bs2,
-    start_straight=0.01,
-    end_straight=0.01,
-    min_straight=0.01,
-):
+    input_port: Port,
+    output_port: Port,
+    bs1: float64,
+    bs2: float64,
+    start_straight: float = 0.01,
+    end_straight: float = 0.01,
+    min_straight: float = 0.01,
+) -> ndarray:
     """
     Args:
-        input_port: phidl Device Port
-        output_port: phidl Device Port
+        input_port:
+        output_port:
         bs1, bs2: float, float : the bend size
 
     """
@@ -307,7 +328,9 @@ def _generate_route_manhattan_points(
     return points
 
 
-def _get_bend_reference_parameters(p0, p1, p2, bend_cell):
+def _get_bend_reference_parameters(
+    p0: ndarray, p1: ndarray, p2: ndarray, bend_cell: Component
+) -> Tuple[ndarray, int, bool]:
     """
     8 possible configurations
     First mirror , Then rotate
@@ -372,14 +395,14 @@ def _get_bend_reference_parameters(p0, p1, p2, bend_cell):
     return bend_origin, t[0], t[1]
 
 
-def make_ref(component_factory):
+def make_ref(component_factory: Callable) -> Callable:
     def _make_ref(*args, **kwargs):
         return component_factory(*args, **kwargs).ref()
 
     return _make_ref
 
 
-def remove_flat_angles(points):
+def remove_flat_angles(points: ndarray) -> ndarray:
     a = angles_deg(np.vstack(points))
     da = a - np.roll(a, 1)
     da = np.mod(np.round(da, 3), 180)
@@ -425,8 +448,8 @@ def round_corners(
             If not specified, will use some heuristic to find them
     """
     ## If there is a taper, make sure its length is known
-    if taper != None:
-        if not "length" in taper.info:
+    if taper:
+        if "length" not in taper.info:
             _taper_ports = list(taper.ports.values())
             taper.info["length"] = _taper_ports[-1].x - _taper_ports[0].x
 
@@ -466,7 +489,9 @@ def round_corners(
         elif dp[0] < 0:
             a0 = 180
 
-    assert a0 != None, "Points should be manhattan, got {} {}".format(p0_straight, p1)
+    assert a0 is not None, "Points should be manhattan, got {} {}".format(
+        p0_straight, p1
+    )
 
     pname_west, pname_north = [p.name for p in _get_bend_ports(bend90)]
 
@@ -499,7 +524,7 @@ def round_corners(
 
         total_length += length
 
-        if taper != None and length > 2 * taper.info["length"] + 1.0:
+        if taper is not None and length > 2 * taper.info["length"] + 1.0:
             length = length - 2 * taper.info["length"]
             with_taper = True
 
@@ -568,27 +593,27 @@ def round_corners(
     # lot of time to compute on every single connector
     """
 
-    cell_name = "zz_conn_{}".format(uuid.uuid4())
-    cell.name = cell_name
+    cell.name = f"zz_conn_{clean_name(str(uuid.uuid4()))[:16]}"
     cell.info["length"] = total_length
+    cell.length = total_length
     return cell
 
 
 def generate_manhattan_waypoints(
-    input_port,
-    output_port,
-    bend90=None,
-    bend_radius=None,
-    start_straight=0.01,
-    end_straight=0.01,
-    min_straight=0.01,
-    **kwargs
-):
+    input_port: Port,
+    output_port: Port,
+    bend90: Optional[Component] = None,
+    bend_radius: None = None,
+    start_straight: float = 0.01,
+    end_straight: float = 0.01,
+    min_straight: float = 0.01,
+    **kwargs,
+) -> ndarray:
     """
 
     """
 
-    if bend90 == None and bend_radius == None:
+    if bend90 is None and bend_radius is None:
         raise ValueError(
             "Either bend90 or bend_radius must be set. \
         Got {} {}".format(
@@ -596,7 +621,7 @@ def generate_manhattan_waypoints(
             )
         )
 
-    if bend90 != None and bend_radius != None:
+    if bend90 is not None and bend_radius is not None:
         raise ValueError(
             "Either bend90 or bend_radius must be set. \
         Got {} {}".format(
@@ -612,7 +637,7 @@ def generate_manhattan_waypoints(
         bsx = p2[0] - p1[0]
         bsy = p2[1] - p1[1]
 
-    elif bend_radius != None:
+    elif bend_radius:
         bsx = bend_radius
         bsy = bend_radius
 
@@ -623,15 +648,15 @@ def generate_manhattan_waypoints(
 
 
 def route_manhattan(
-    input_port,
-    output_port,
-    bend90,
-    straight_factory,
-    taper=None,
-    start_straight=0.01,
-    end_straight=0.01,
-    min_straight=0.01,
-):
+    input_port: Port,
+    output_port: Port,
+    bend90: Component,
+    straight_factory: Callable,
+    taper: None = None,
+    start_straight: float = 0.01,
+    end_straight: float = 0.01,
+    min_straight: float = 0.01,
+) -> ComponentReference:
     bend90 = pp.call_if_func(bend90)
 
     points = generate_manhattan_waypoints(
@@ -647,8 +672,6 @@ def route_manhattan(
 
 def test_manhattan():
     from pp.components.bend_circular import bend_circular
-
-    from pp.component import Port
 
     top_cell = pp.Component()
 
@@ -672,7 +695,6 @@ def test_manhattan():
         # output_port = Port("output_port", (90,-60), 0.5, 180)
 
         bend = bend_circular(radius=5.0)
-        pp.ports.add_port_markers(bend)
         cell = route_manhattan(
             input_port,
             output_port,

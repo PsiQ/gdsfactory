@@ -1,4 +1,8 @@
 import numpy as np
+from omegaconf.listconfig import ListConfig
+from pp.component import Component
+from typing import List, Tuple
+
 import pp
 from pp.layers import LAYER
 from pp.name import clean_name
@@ -9,8 +13,14 @@ A pixel based font, guaranteed to be manhattan, without accute angles
 
 
 def manhattan_text(
-    text="abcd", size=10, position=(0, 0), justify="left", layer=LAYER.M1
-):
+    text: str = "abcd",
+    size: float = 10,
+    position: Tuple[int, int] = (0, 0),
+    justify: str = "left",
+    layer: ListConfig = LAYER.M1,
+    layers_cladding: List[ListConfig] = [],
+    cladding_offset: int = 3,
+) -> Component:
     """
 
     .. plot::
@@ -29,7 +39,7 @@ def manhattan_text(
         name=clean_name(text) + "_{}_{}".format(int(position[0]), int(position[1]))
     )
     for i, line in enumerate(text.split("\n")):
-        l = pp.Component(name=t.name + "{}".format(i))
+        component = pp.Component(name=t.name + "{}".format(i))
         for c in line:
             try:
                 if c not in CHARAC_MAP:
@@ -43,39 +53,48 @@ def manhattan_text(
                 )
                 continue
 
-            _c = l.add_ref(
+            _c = component.add_ref(
                 pixel_array(pixels=pixels, pixel_size=pixel_size, layer=layer)
             )
             _c.move((xoffset, yoffset))
-            l.absorb(_c)
+            component.absorb(_c)
             xoffset += pixel_size * 6
 
-        t.add_ref(l)
+        t.add_ref(component)
         yoffset -= pixel_size * 6
         xoffset = position[0]
     justify = justify.lower()
-    for l in t.references:
+    for ref in t.references:
         if justify == "left":
             pass
         if justify == "right":
-            l.xmax = position[0]
+            ref.xmax = position[0]
         if justify == "center":
-            l.move(origin=l.center, destination=position, axis="x")
+            ref.move(origin=ref.center, destination=position, axis="x")
+
+    points = [
+        [t.xmin - cladding_offset / 2, t.ymin - cladding_offset],
+        [t.xmax + cladding_offset / 2, t.ymin - cladding_offset],
+        [t.xmax + cladding_offset / 2, t.ymax + cladding_offset],
+        [t.xmin - cladding_offset / 2, t.ymax + cladding_offset],
+    ]
+    for layer in layers_cladding:
+        t.add_polygon(points, layer=layer)
     return t
 
 
 @pp.autoname
 def pixel_array(
-    pixels="""
+    pixels: str = """
      XXX
     X   X
     XXXXX
     X   X
     X   X
     """,
-    pixel_size=10.0,
-    layer=LAYER.M1,
-):
+    pixel_size: float = 10.0,
+    layer: ListConfig = LAYER.M1,
+) -> Component:
     component = pp.Component()
     lines = [line for line in pixels.split("\n") if len(line) > 0]
     lines.reverse()
@@ -349,7 +368,7 @@ _
 CHARAC_MAP = {}
 
 
-def load_font():
+def load_font() -> None:
     lines = FONT.split("\n")
     global CHARAC_MAP
     while lines:
@@ -369,5 +388,8 @@ load_font()
 
 
 if __name__ == "__main__":
-    c = manhattan_text(text="The mask is nearly done. only 12345 drc errors remaining")
+    c = manhattan_text(
+        text="The mask is nearly done. only 12345 drc errors remaining",
+        layers_cladding=[(33, 44)],
+    )
     pp.show(c)

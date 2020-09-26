@@ -23,25 +23,29 @@ def straight(width, length, start_coord, layer=pp.LAYER.WG, datatype=0):
 
 @pp.autoname
 def spiral_circular(
-    length_delay,
+    length=1e3,
     wg_width=0.5,
     spacing=3,
     min_bend_radius=5,
     points=1000,
     wg_layer=pp.LAYER.WG,
-    wg_datatype=0,
 ):
     """ Returns a circular spiral
+
+    Args:
+        length(um):
 
     .. plot::
         :include-source:
 
         import pp
 
-        c = pp.c.spiral_circular(length_delay=1e3)
+        c = pp.c.spiral_circular(length=1e3)
         pp.plotgds(c)
 
     """
+    wg_datatype = wg_layer[1]
+    wg_layer = wg_layer[0]
 
     def pol_to_rect(radii, angles_deg):
         angles_rad = np.radians(angles_deg)
@@ -53,7 +57,7 @@ def spiral_circular(
     # Estimate number of revolutions
     length_total = 0.0
     i = 0
-    while length_total <= length_delay:
+    while length_total <= length:
         length_total += 3.0 * np.pi * (min_bend_radius * 2.0 + (i + 0.5) * spacing)
         i += 1
     revolutions = i + 1
@@ -68,6 +72,7 @@ def spiral_circular(
     x_1, y_1 = pol_to_rect(radii_1, theta_1)
     x_1 = np.append(x_1, x_1[-1] + 0.03)
     y_1 = np.append(y_1, y_1[-1])
+
     p = gds.PolyPath(np.c_[x_1, y_1], wg_width, layer=wg_layer, datatype=wg_datatype)
     ps.append(p)
     x_2, y_2 = pol_to_rect(radii_2, theta_2)
@@ -126,11 +131,11 @@ def spiral_circular(
         np.c_[x_input, y_input], wg_width, layer=wg_layer, datatype=wg_datatype
     )
     ps.append(p)
-    l = start_2[1] - end_input[1]
+    length = start_2[1] - end_input[1]
     p, _, _ = straight(
-        l,
+        length,
         wg_width,
-        (end_input[0] - wg_width / 2.0, end_input[1] + l / 2.0),
+        (end_input[0] - wg_width / 2.0, end_input[1] + length / 2.0),
         layer=wg_layer,
         datatype=wg_datatype,
     )
@@ -149,6 +154,7 @@ def spiral_circular(
 
     """ component """
     c = pp.Component()
+    c.length = length
     c.add_polygon(ps, layer=wg_layer)
 
     c.add_port(
@@ -165,12 +171,13 @@ def spiral_circular(
         layer=wg_layer,
         width=wg_width,
     )
-    c.length = length
     return c
 
 
 if __name__ == "__main__":
-    c = spiral_circular(length_delay=1e3)
+    c = spiral_circular(length=1e3, pins=True)
+    print(c.ports)
+    print(c.ports.keys())
+    print(c.get_ports_array())
     pp.show(c)
     pp.write_gds(c)
-    print(c.get_settings())

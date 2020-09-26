@@ -3,12 +3,13 @@ find GDS labels and write labels into a CSV file
 """
 
 import pathlib
-import os
 import csv
 import klayout.db as pya
 
+from pp import LAYER
 
-def find_labels(gdspath, label_layer=201, label_purpose=0):
+
+def find_labels(gdspath, label_layer=LAYER.LABEL, prefix="opt_"):
     """ finds labels and locations from a GDS file """
     # Load the layout
     gdspath = str(gdspath)
@@ -18,7 +19,7 @@ def find_labels(gdspath, label_layer=201, label_purpose=0):
     # Get the top cell and the units, and find out the index of the layer
     topcell = layout.top_cell()
     dbu = layout.dbu
-    layer = pya.LayerInfo(label_layer, label_purpose)
+    layer = pya.LayerInfo(label_layer[0], label_layer[1])
     layer_index = layout.layer(layer)
 
     # Extract locations
@@ -29,38 +30,27 @@ def find_labels(gdspath, label_layer=201, label_purpose=0):
         iterator.next()
         if shape.is_text():
             text = shape.text
-            transformed = text.transformed(trans)
-            yield text.string, transformed.x * dbu, transformed.y * dbu
+            if text.string.startswith(prefix):
+                transformed = text.transformed(trans)
+                yield text.string, transformed.x * dbu, transformed.y * dbu
 
 
-def _write_csv(labels, filename):
-    """ Writes labels to disk in JSON format """
-    data = labels
-    with open(filename, "w", newline="") as f:
-        writer = csv.writer(f)
-        writer.writerows(data)
-    print(("Wrote {}".format(os.path.abspath(filename))))
-
-
-def write_labels(gdspath, label_layer=201, label_purpose=0, csv_filename=None):
+def write_labels(gdspath, label_layer=LAYER.LABEL, csv_filename=None, prefix="opt_"):
     """Load  GDS mask and extracts the labels and coordinates from a GDS file"""
-    labels = list(
-        find_labels(
-            gdspath, label_layer=int(label_layer), label_purpose=int(label_purpose)
-        )
-    )
+    labels = list(find_labels(gdspath, label_layer=label_layer, prefix=prefix))
 
     # Save the coordinates somewhere sensible
     if csv_filename is None:
         gdspath = pathlib.Path(gdspath)
         csv_filename = gdspath.with_suffix(".csv")
-    _write_csv(labels, csv_filename)
+    with open(csv_filename, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerows(labels)
+    print(f"Wrote {csv_filename}")
 
 
 if __name__ == "__main__":
-    from pp.config import CONFIG, load_config
+    from pp.config import CONFIG
 
-    config_path = CONFIG["samples_path"] / "mask" / "config.yml"
-    config = load_config(config_path)
-    gdspath = str(config["mask"]["gds"])
+    gdspath = CONFIG["samples_path"] / "mask" / "build" / "mask" / "sample.gds"
     write_labels(gdspath)

@@ -1,8 +1,14 @@
 from phidl import device_layout as pd
 import pp
+from phidl.device_layout import Label
+from typing import Tuple
 
 
-def label(text, position=(0, 0), layer=pp.LAYER.TEXT):
+def label(
+    text: str = "abc",
+    position: Tuple[float, float] = (0.0, 0.0),
+    layer: Tuple[int, int] = pp.LAYER.TEXT,
+) -> Label:
 
     gds_layer_label, gds_datatype_label = pd._parse_layer(layer)
 
@@ -22,8 +28,8 @@ def _demo_label():
     """
     c = pp.Component()
     c.add_ref(pp.c.circle(radius=3.0, angle_resolution=10.0))
-    c.label(text="hi", position=(0, 1))
-    # c.add(label("hi", (0, 1)))
+    # c.label(text="hi", position=(0, 1))
+    c.add(label("hi", (0, 1)))
     return c
 
 

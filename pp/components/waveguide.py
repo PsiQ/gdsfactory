@@ -1,19 +1,23 @@
+from typing import List, Tuple
+
 import hashlib
 import pp
 from pp.name import autoname
 from pp.components.hline import hline
+
+from pp.component import Component
 
 __version__ = "0.0.1"
 
 
 @autoname
 def waveguide(
-    length=10,
-    width=0.5,
-    layer=pp.LAYER.WG,
-    layers_cladding=[pp.LAYER.WGCLAD],
-    cladding_offset=3,
-):
+    length: float = 10.0,
+    width: float = 0.5,
+    layer: Tuple[int, int] = pp.LAYER.WG,
+    layers_cladding: List[Tuple[int, int]] = [pp.LAYER.WGCLAD],
+    cladding_offset: float = 3.0,
+) -> Component:
     """ straight waveguide
 
     Args:
@@ -29,7 +33,7 @@ def waveguide(
       pp.plotgds(c)
 
     """
-    c = pp.Component()
+    c = Component()
     w = width / 2
     c.add_polygon([(0, -w), (length, -w), (length, w), (0, w)], layer=layer)
 
@@ -78,7 +82,7 @@ def _arbitrary_straight_waveguide(length, windows):
     for e in windows:
         md5.update(str(e).encode())
 
-    component = pp.Component()
+    component = Component()
     component.name = "ARB_SW_L{}_HASH{}".format(length, md5.hexdigest())
     y_min, y_max, layer0 = windows[0]
     y_min, y_max = min(y_min, y_max), max(y_min, y_max)
@@ -153,13 +157,16 @@ def _demo_waveguide():
 
 if __name__ == "__main__":
 
-    c = waveguide(length=4)
-    print(c.hash_geometry())
+    c = waveguide(length=4, pins=True)
+
     pp.show(c)
 
+    # print(c.hash_geometry())
+    # pp.show(c)
+
     # print(c.ports)
-    cc = pp.routing.add_io_optical(c)
-    pp.show(cc)
+    # cc = pp.routing.add_io_optical(c)
+    # pp.show(cc)
 
     # c = waveguide_slab()
     # c = waveguide_trenches()
