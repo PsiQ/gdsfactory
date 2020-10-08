@@ -1,11 +1,8 @@
-from typing import Any, Callable, List, Tuple, Union
-import pp
-from pp.rotate import rotate
-from pp.routing.connect_component import route_fiber_array
-
-from pp.components import waveguide
-from pp.components.grating_coupler.elliptical_trenches import grating_coupler_te
+from typing import Any, List, Tuple, Union
 from phidl.device_layout import Label
+import pp
+from pp.routing.route_fiber_array import route_fiber_array
+from pp.components.grating_coupler.elliptical_trenches import grating_coupler_te
 from pp.component import Component, ComponentReference
 
 
@@ -13,9 +10,8 @@ def route_fiber_single(
     component: Component,
     optical_io_spacing: int = 50,
     grating_coupler: Component = grating_coupler_te,
-    straight_factory: Callable = waveguide,
     min_input2output_spacing: int = 230,
-    optical_routing_type: int = 2,
+    optical_routing_type: int = 1,
     optical_port_labels: None = None,
     excluded_ports: List[Any] = [],
     **kwargs
@@ -33,25 +29,17 @@ def route_fiber_single(
         component: to add grating couplers
         optical_io_spacing: between grating couplers
         grating_coupler:
-        straight_factory
         min_input2output_spacing: so opposite fibers do not touch
         optical_routing_type: 0, 1, 2
+        optical_port_labels: port labels that need connection
+        excluded_ports: ports excluded from routing
 
-    .. plot::
-      :include-source:
-
-       import pp
-       from pp.routing import add_io_optical
-       from pp.routing import route_fiber_single
-
-       c = pp.c.mmi1x2()
-       cc = add_io_optical(c, get_route_factory=route_fiber_single)
-       pp.plotgds(cc)
     """
-    component_name = component.name
+    component = component.copy()
+    component_copy = component.copy()
 
     if optical_port_labels is None:
-        optical_ports = component.get_optical_ports()
+        optical_ports = component.get_ports_list(port_type="optical")
     else:
         optical_ports = [component.ports[lbl] for lbl in optical_port_labels]
     optical_ports = [p for p in optical_ports if p.name not in excluded_ports]
@@ -75,16 +63,37 @@ def route_fiber_single(
     else:
         fanout_length = None
 
-    west_ports = [p for p in component.get_optical_ports() if p.name.startswith("W")]
-    east_ports = [
-        p for p in component.get_optical_ports() if not p.name.startswith("W")
-    ]
+    """
+         _________
+        |         |_E1
+     W0_|         |
+        |         |_E0
+        |_________|
 
-    # add west input grating couplers
-    component.ports = {p.name: p for p in west_ports}
+    rotate +90 deg and route West ports to South
+
+          E1  E0
+         _|___|_
+        |       |
+        |       |
+        |       |
+        |       |
+        |       |
+        |       |
+        |_______|
+            |
+            W0
+
+    """
+    # route west ports to south
     component = component.rotate(90)
+    west_ports = component.get_ports_dict(prefix="W")
+    north_ports = {
+        p.name: p for p in component.ports.values() if not p.name.startswith("W")
+    }
+    component.ports = west_ports
 
-    elements_east, io_grating_lines_east, _ = route_fiber_array(
+    elements_south, gratings_south, _ = route_fiber_array(
         component=component,
         with_align_ports=False,
         optical_io_spacing=optical_io_spacing,
@@ -93,14 +102,15 @@ def route_fiber_single(
         optical_routing_type=optical_routing_type,
         **kwargs
     )
-    component = rotate(component, angle=-90)
 
-    # add EAST input grating couplers
-    component.ports = {p.name: p for p in east_ports}
-    component = rotate(component, angle=-90)
+    # route north ports
+    component = component_copy.rotate(-90)
+    north_ports = {
+        p.name: p for p in component.ports.values() if not p.name.startswith("W")
+    }
+    component.ports = north_ports
 
-    component.name = component_name
-    elements_west, io_grating_lines_west, _ = route_fiber_array(
+    elements_north, gratings_north, _ = route_fiber_array(
         component=component,
         with_align_ports=False,
         optical_io_spacing=optical_io_spacing,
@@ -108,27 +118,35 @@ def route_fiber_single(
         grating_coupler=grating_couplers[1:],
         **kwargs
     )
-    for e in elements_west:
-        elements_east.append(e.rotate(180))
+    for e in elements_north:
+        elements_south.append(e.rotate(180))
 
-    if len(io_grating_lines_west) > 0:
-        for io in io_grating_lines_west[0]:
-            io_grating_lines_east.append(io.rotate(180))
+    if len(gratings_north) > 0:
+        for io in gratings_north[0]:
+            gratings_south.append(io.rotate(180))
 
-    return elements_east, io_grating_lines_east, None
+    return elements_south, gratings_south, None
 
 
 if __name__ == "__main__":
     gcte = pp.c.grating_coupler_te
     gctm = pp.c.grating_coupler_tm
 
+    # c = pp.c.crossing()
     # c = pp.c.mmi2x2()
-    # c = pp.c.waveguide()
-    c = pp.c.ring_double()  # FIXME
+    # c = pp.c.ring_double()  # FIXME
+    c = pp.c.cross(length=500)
+    c = pp.c.waveguide(width=2, length=500)
 
     elements, gc, _ = route_fiber_single(c, grating_coupler=[gcte, gctm, gcte, gctm])
+
+    cc = pp.Component()
+    cr = cc << c.rotate(90)
+    cr.x = 0
+    cr.y = 0
+
     for e in elements:
-        c.add(e)
+        cc.add(e)
     for e in gc:
-        c.add(e)
-    pp.show(c)
+        cc.add(e)
+    pp.show(cc)

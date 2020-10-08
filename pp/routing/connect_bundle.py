@@ -1,3 +1,8 @@
+""" route bundles of port (river routing)
+"""
+
+from typing import Callable, List, Optional
+from numpy import float64, ndarray
 import numpy as np
 from pp.routing.connect import connect_strip
 from pp.routing.connect import connect_elec_waypoints
@@ -12,8 +17,6 @@ from pp.name import autoname
 from pp.component import ComponentReference, Component
 from pp.port import Port
 from pp.config import conf
-from numpy import float64, ndarray
-from typing import Callable, List, Optional
 
 METAL_MIN_SEPARATION = 10.0
 BEND_RADIUS = conf.tech.bend_radius
@@ -28,12 +31,16 @@ def connect_bundle(
     extension_length=0,
     **kwargs,
 ):
-    """ Connects a bungle of ports using river routing.
+    """ Connects bundle of ports using river routing.
     Chooses the correct u_bundle to use based on port angles
 
     Args:
         start_ports should all be facing in the same direction
         end_ports should all be facing in the same direction
+        route_filter: function to connect
+        separation: waveguide separation
+        bend_radius: for the routes
+        extension_length: adds waveguide extension
 
     """
     # Accept dict ot list
@@ -144,7 +151,7 @@ def link_ports(
     route_filter: Callable = connect_strip_way_points,
     **routing_params,
 ) -> List[ComponentReference]:
-    """Semi auto-routing for two lists of ports
+    """Semi auto-routing for two lists of ports.
 
     Args:
         ports1: first list of ports
@@ -156,7 +163,6 @@ def link_ports(
         bend_radius: If unspecified, attempts to get it from the waveguide definition of the first port in ports1
         route_filter: filter to apply to the manhattan waypoints
             e.g `connect_strip_way_points` for deep etch strip waveguide
-
         end_straight_offset: offset to add at the end of each waveguide
         sort_ports: * True -> sort the ports according to the axis.
                     * False -> no sort applied
@@ -173,9 +179,6 @@ def link_ports(
 
     .. code::
 
-        Connection-cartoon
-
-        We want to connect something like this::
         1             X    X     X  X X  X
         |-----------|    |     |  | |  |-----------------------|
         |          |-----|     |  | |---------------|          |
@@ -183,22 +186,22 @@ def link_ports(
         2 X          X          X          X          X          X
 
 
-        ``start`` is at the top
-        ``end`` is at the bottom
+    start: at the top
+    end: at the bottom
 
-        The general strategy is:
-        Group tracks which would collide together and apply the following method
-        on each group:
+    The general strategy is:
+    Group tracks which would collide together and apply the following method
+    on each group:
 
-            if x2 >= x1, increase ``end_straight``
-                (as seen on the right 3 ports)
-            otherwise, decrease ``end_straight``
-                (as seen on the first 2 ports)
+        if x2 >= x1, increase ``end_straight``
+            (as seen on the right 3 ports)
+        otherwise, decrease ``end_straight``
+            (as seen on the first 2 ports)
 
-        We deal with negative end_straight by doing at the end
-            end_straights = end_straights - min(end_straights)
+    We deal with negative end_straight by doing at the end
+        end_straights = end_straights - min(end_straights)
 
-        This method deals with different metal track/wg/wire widths too.
+    This method deals with different metal track/wg/wire widths too.
 
     """
 
@@ -573,14 +576,35 @@ def connect_bundle_path_length_match(
 
 
 def link_electrical_ports(
-    ports1,
-    ports2,
-    separation=METAL_MIN_SEPARATION,
-    bend_radius=0.0001,
+    ports1: List[Port],
+    ports2: List[Port],
+    separation: float = METAL_MIN_SEPARATION,
+    bend_radius: float = 0.0001,
     link_dummy_ports=False,
-    route_filter=connect_elec_waypoints,
+    route_filter: Callable = connect_elec_waypoints,
     **kwargs,
-):
+) -> List[ComponentReference]:
+    """ Connect bundle of electrical ports
+
+    Args:
+        ports1: first list of ports
+        ports2: second list of ports
+        separation: minimum separation between two waveguides
+        axis: specifies "X" or "Y"
+              X (resp. Y) -> indicates that the ports should be sorted and
+             compared using the X (resp. Y) axis
+        bend_radius: If unspecified, attempts to get it from the waveguide definition of the first port in ports1
+        route_filter: filter to apply to the manhattan waypoints
+            e.g `connect_strip_way_points` for deep etch strip waveguide
+
+        end_straight_offset: offset to add at the end of each waveguide
+        sort_ports: * True -> sort the ports according to the axis.
+                    * False -> no sort applied
+        compute_array_separation_only: If True, returns the min distance which should be used between the two arrays instead of returning the connectors. Useful for budgeting space before instantiating other components.
+
+    Returns:
+        list of references of the electrical routes
+    """
     if link_dummy_ports:
         new_ports1 = ports1
         new_ports2 = ports2
@@ -615,6 +639,8 @@ def link_optical_ports(
     bend_radius: float = BEND_RADIUS,
     **kwargs,
 ) -> List[ComponentReference]:
+    """ connect bundle of optical ports
+    """
     return link_ports(
         ports1,
         ports2,
@@ -1029,27 +1055,27 @@ def demo_connect_bundle():
     x = 500
     y0 = 900
     dy = 200.0
-    cmp = Component("connect_bundle")
+    c = Component("connect_bundle")
     for j, s in enumerate([-1, 1]):
         for i, angle in enumerate([0, 90, 180, 270]):
             _cmp = test_connect_bundle_u_indirect(dy=s * dy, angle=angle)
             _cmp_ref = _cmp.ref(position=(i * x, j * y))
-            cmp.add(_cmp_ref)
+            c.add(_cmp_ref)
 
             _cmp = test_connect_bundle_udirect(dy=s * dy, angle=angle)
             _cmp_ref = _cmp.ref(position=(i * x, j * y + y0))
-            cmp.add(_cmp_ref)
+            c.add(_cmp_ref)
 
     for i, config in enumerate(["A", "B", "C", "D"]):
         _cmp = test_connect_corner(config=config)
         _cmp_ref = _cmp.ref(position=(i * x, 1700))
-        cmp.add(_cmp_ref)
+        c.add(_cmp_ref)
 
     _cmp = test_facing_ports()
     _cmp_ref = _cmp.ref(position=(800, 1820))
-    cmp.add(_cmp_ref)
+    c.add(_cmp_ref)
 
-    return cmp
+    return c
 
 
 def demo_connect_bundle_small(bend_radius=5):

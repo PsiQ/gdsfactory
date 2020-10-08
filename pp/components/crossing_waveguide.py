@@ -28,7 +28,8 @@ def crossing_arm(
     w: float = 1.2,
     L: float = 3.4,
 ) -> Component:
-    """"""
+    """ arm of a crossing
+    """
     c = pp.Component()
     _ellipse = ellipse(radii=(r1, r2), layer=LAYER.SLAB150).ref()
     c.add(_ellipse)
@@ -179,9 +180,10 @@ def crossing_etched(
 
 @pp.autoname
 def crossing45(crossing=crossing, port_spacing=40.0, dx=None, alpha=0.08):
-    """
+    r""" 45Deg crossing with bends
+
     Args:
-        crossing: <pp.Component> the 90D crossing to use
+        crossing: 90D crossing
         port_spacing: target I/O port spacing
         dx: target length
         alpha: optimization parameter. Try with 0.1 to start with.
@@ -189,16 +191,17 @@ def crossing45(crossing=crossing, port_spacing=40.0, dx=None, alpha=0.08):
             - If raise assertion angle errors, increase it
 
 
-    A 45Deg crossing with bends
-
-    ----   ----
-        \ /
-         X
-        / \
-    ---    ----
-
     Implementation note: The 45 Degree crossing CANNOT be kept as an SRef since
     we only allow for multiples of 90Deg rotations in SRef
+
+    .. code::
+
+        ----   ----
+            \ /
+             X
+            / \
+        ---    ----
+
     """
 
     # Instantiate the crossing if it is a factory
@@ -273,7 +276,8 @@ def crossing45(crossing=crossing, port_spacing=40.0, dx=None, alpha=0.08):
 
 @pp.autoname
 def compensation_path(crossing45=crossing45, direction="top"):
-    """
+    r""" Path with same path length as crossing45 but with input and output ports having same y coordinates
+
     Args:
         name: component name
         crossing45: the crossing45 component that we want to match in path length
@@ -283,26 +287,29 @@ def compensation_path(crossing45=crossing45, direction="top"):
     Returns:
         <pp.Component> a compensation path
 
-    Path with same path length as crossing45
-    but with input and output ports having same y coordinates
 
 
     crossing45:
-    ----       ----
-        \     /
-         \   /
-          \ /
-           X
-          / \
-         /   \
-        /     \
-    ----       ----
+
+    .. code::
+
+          ----       ----
+              \     /
+               \   /
+                \ /
+                 X
+                / \
+               /   \
+              /     \
+          ----       ----
 
     Compensation path:
 
-         --+--
-       _/     \_
-    --/         \--
+    .. code::
+
+             --+--
+           _/     \_
+        --/         \--
 
 
     """

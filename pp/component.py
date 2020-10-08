@@ -1,6 +1,6 @@
 import itertools
 import uuid
-import json
+import copy as python_copy
 import pathlib
 from typing import Any, Dict, List, Optional, Tuple, Union
 import numpy as np
@@ -13,10 +13,42 @@ from phidl.device_layout import Device
 from phidl.device_layout import DeviceReference
 from phidl.device_layout import _parse_layer
 
-from pp.port import Port, select_optical_ports, select_electrical_ports
+from pp.port import Port, select_ports
 from pp.config import CONFIG, conf, connections
 from pp.compare_cells import hash_cells
-from pp.name import dict2hash
+from pp.name import dict2hash, clean_dict, clean_list
+
+
+def copy(D):
+    """returns a copy of a Component.
+    """
+    D_copy = Component(name=D._internal_name)
+    D_copy.info = python_copy.deepcopy(D.info)
+    for ref in D.references:
+        new_ref = ComponentReference(
+            ref.parent,
+            origin=ref.origin,
+            rotation=ref.rotation,
+            magnification=ref.magnification,
+            x_reflection=ref.x_reflection,
+        )
+        new_ref.owner = D_copy
+        D_copy.add(new_ref)
+        for alias_name, alias_ref in D.aliases.items():
+            if alias_ref == ref:
+                D_copy.aliases[alias_name] = new_ref
+
+    for port in D.ports.values():
+        D_copy.add_port(port=port)
+    for poly in D.polygons:
+        D_copy.add_polygon(poly)
+    for label in D.labels:
+        D_copy.add_label(
+            text=label.text,
+            position=label.position,
+            layer=(label.layer, label.texttype),
+        )
+    return D_copy
 
 
 class SizeInfo:
@@ -349,12 +381,10 @@ class ComponentReference(DeviceReference):
         return self
 
     def rotate(
-        self,
-        angle: Union[float64, int, int64, float] = 45,
-        center: Union[Tuple[int, int], ndarray] = (0, 0),
+        self, angle: [int, float] = 45, center: Tuple[int, int] = (0.0, 0.0),
     ):
         """
-        Returns:
+        Returns a component
             ComponentReference
         """
         if angle == 0:
@@ -399,9 +429,9 @@ class ComponentReference(DeviceReference):
         p1: Union[Tuple[float64, float64], Tuple[int, float64]] = (0, 1),
         p2: Union[Tuple[float64, float64], Tuple[int, float64]] = (0, 0),
     ):
-        if type(p1) is Port:
+        if isinstance(p1, Port):
             p1 = p1.midpoint
-        if type(p2) is Port:
+        if isinstance(p2, Port):
             p2 = p2.midpoint
         p1 = np.array(p1)
         p2 = np.array(p2)
@@ -428,8 +458,7 @@ class ComponentReference(DeviceReference):
         return self
 
     def connect(self, port: str, destination: Port, overlap: float = 0):
-        """ returns ComponentReference
-        """
+        """returns ComponentReference"""
         # ``port`` can either be a string with the name or an actual Port
         if port in self.ports:  # Then ``port`` is a key for the ports dict
             p = self.ports[port]
@@ -592,14 +621,20 @@ class Component(Device):
         dirpath.mkdir(exist_ok=True, parents=True)
         return dirpath / f"{self.get_name_long()}_{height_nm}.dat"
 
-    def get_optical_ports(self) -> List[Port]:
-        """ returns a lit of optical ports """
-        return list(select_optical_ports(self.ports).values())
-
     def ports_on_grid(self) -> None:
         """ asserts if all ports ar eon grid """
         for port in self.ports.values():
             port.on_grid()
+
+    def get_ports_dict(self, port_type="optical", prefix=None):
+        """ returns a list of ports """
+        return select_ports(self.ports, port_type=port_type, prefix=prefix)
+
+    def get_ports_list(self, port_type="optical", prefix=None) -> List[Port]:
+        """ returns a lit of  ports """
+        return list(
+            select_ports(self.ports, port_type=port_type, prefix=prefix).values()
+        )
 
     def get_ports_array(self) -> Dict[str, ndarray]:
         """ returns ports as a dict of np arrays"""
@@ -618,10 +653,6 @@ class Component(Device):
             for port_name, port in self.ports.items()
         }
         return ports_array
-
-    def get_electrical_ports(self):
-        """ returns a list of optical ports """
-        return list(select_electrical_ports(self.ports).values())
 
     def get_properties(self):
         """ returns name, uid, ports, aliases and numer of references """
@@ -855,6 +886,9 @@ class Component(Device):
                 D.labels = new_labels
         return self
 
+    def copy(self):
+        return copy(self)
+
     @property
     def size_info(self) -> SizeInfo:
         """ size info of the component """
@@ -950,25 +984,20 @@ def recurse_structures(structure: Component) -> Dict[str, Any]:
 
 def _clean_value(value: Any) -> Any:
     """ returns a clean value """
-    if type(value) in [int, float, str, tuple]:
+    if type(value) in [int, float, str, tuple, bool]:
         value = value
-    elif callable(value):
-        value = value.__name__
-    elif type(value) == Component:
-        value = value.name
-    # elif hasattr(value, "__iter__"):
-    #     value = "_".join(["{}".format(i) for i in value]).replace(".", "p")
-    elif hasattr(value, "__iter__"):
-        try:
-            json.dumps(value)
-            value = value
-        except Exception:
-            # value = str(value)
-            value = "_".join(["{}".format(i) for i in value]).replace(".", "p")
     elif isinstance(value, np.int32):
         value = int(value)
     elif isinstance(value, np.int64):
         value = int(value)
+    elif callable(value):
+        value = value.__name__
+    elif type(value) == Component:
+        value = value.name
+    elif hasattr(value, "items"):
+        clean_dict(value)
+    elif hasattr(value, "__iter__"):
+        clean_list(value)
     else:
         value = str(value)
 
@@ -1024,8 +1053,8 @@ if __name__ == "__main__":
     import pp
 
     # c = pp.c.ring_single()
-    c = pp.c.mzi()
-    c.plot_netlist()
+    # c = pp.c.mzi()
+    # c.plot_netlist()
 
     # test_netlist_simple()
     # test_netlist_complex()
@@ -1056,14 +1085,14 @@ if __name__ == "__main__":
     # print(c.get_json()['cells'].keys())
     # print(c.get_json())
 
-    # from pp.routing import add_io_optical
-    # cc = add_io_optical(c)
+    # from pp.routing import add_fiber_array
+    # cc = add_fiber_array(c)
     # pp.write_component(cc)
 
     # from pprint import pprint
 
     # c = pp.c.mmi1x2()
-    # cc = add_io_optical(c)
+    # cc = add_fiber_array(c)
     # cc.get_json()
     # pp.show(cc)
     # c.update_settings(
@@ -1084,6 +1113,8 @@ if __name__ == "__main__":
     # pprint(c.get_json())
     # pprint(c.get_settings())
 
+    c = pp.c.waveguide()
+    c = pp.routing.add_fiber_array(c)
+    print(c.get_settings())
     # print(c.get_json())
-    # print(c.get_settings())
     # print(c.get_settings(test="hi"))

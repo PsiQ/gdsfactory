@@ -118,8 +118,11 @@ Routing banks of ports through pre-defined waypoints
 .. plot::
     :include-source:
 
+    import numpy as np
     import pp
     from pp.routing.connect_bundle_from_waypoints import connect_bundle_waypoints
+
+
     @pp.autoname
     def test_connect_bundle_waypoints():
         import pp
@@ -161,9 +164,9 @@ Connecting optical I/O to a component
 In cases where individual components have to be tested, a function is provided to
 generate the array of optical I/O and connect them to the component. The default connector connects to a 127um pitch fiber array.
 
-.. autofunction:: pp.routing.connect_component.add_io_optical
+.. autofunction:: pp.routing.add_fiber_array.add_fiber_array
 
 
 You can also use individual fibers
 
-.. autofunction:: pp.routing.route_fiber_single
+.. autofunction:: pp.routing.add_fiber_single.add_fiber_single

@@ -7,8 +7,6 @@ from pp.components.hline import hline
 
 from pp.component import Component
 
-__version__ = "0.0.1"
-
 
 @autoname
 def waveguide(
@@ -165,7 +163,7 @@ if __name__ == "__main__":
     # pp.show(c)
 
     # print(c.ports)
-    # cc = pp.routing.add_io_optical(c)
+    # cc = pp.routing.add_fiber_array(c)
     # pp.show(cc)
 
     # c = waveguide_slab()

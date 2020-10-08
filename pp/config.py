@@ -8,7 +8,7 @@
 `conf` has all the useful info
 """
 
-__version__ = "1.3.3"
+__version__ = "1.4.2"
 from typing import Any
 import os
 import io
@@ -76,6 +76,7 @@ CONFIG = dict(
     config_path=cwd_config.absolute(),
     repo_path=repo_path,
     module_path=module_path,
+    gdsdir=module_path / "gds",
     font_path=module_path / "gds" / "alphabet.gds",
     masks_path=repo_path / "mask",
     version=__version__,
@@ -110,6 +111,7 @@ CONFIG["mask_gds"] = build_directory / "mask" / (mask_name + ".gds")
 CONFIG["mask_config_directory"] = mask_config_directory
 CONFIG["gdspath"] = build_directory / "gds.gds"
 CONFIG["samples_path"] = module_path / "samples"
+CONFIG["netlists"] = module_path / "samples" / "netlists"
 CONFIG["components_path"] = module_path / "components"
 
 if "gds_resources" in CONFIG:

@@ -12,30 +12,30 @@ from pp.routing.get_input_labels import get_input_labels
 from pp.component import Component
 
 
-def add_io_optical_te(*args, **kwargs):
-    return add_io_optical(*args, **kwargs)
+def add_fiber_array_te(*args, **kwargs):
+    return add_fiber_array(*args, **kwargs)
 
 
-def add_io_optical_tm(*args, grating_coupler=grating_coupler_tm, **kwargs):
-    return add_io_optical(*args, grating_coupler=grating_coupler, **kwargs)
+def add_fiber_array_tm(*args, grating_coupler=grating_coupler_tm, **kwargs):
+    return add_fiber_array(*args, grating_coupler=grating_coupler, **kwargs)
 
 
 @container
-def add_io_optical(
+def add_fiber_array(
     component: Component,
     grating_coupler: Component = grating_coupler_te,
     gc_port_name: str = "W0",
     component_name: None = None,
     taper_factory: Callable = taper,
+    taper_length: float = 10.0,
     get_route_factory: Callable = route_fiber_array,
     get_input_labels_function: Callable = get_input_labels,
     **kwargs,
 ) -> Component:
-    """ returns component with optical IO (tapers, south routes and grating_couplers)
+    """returns component with optical IO (tapers, south routes and grating_couplers)
 
     Args:
         component: to connect
-        optical_io_spacing: SPACING_GC
         grating_coupler: grating coupler instance, function or list of functions
         bend_factory: bend_circular
         straight_factory: waveguide
@@ -53,21 +53,22 @@ def add_io_optical(
         routing_waveguide: None
         routing_method: connect_strip
         gc_port_name: W0
-        optical_routing_type: None: autoselection, 0: no extension
+        optical_routing_type: None: autoselection, 0: no extension, 1: standard, 2: check
         gc_rotation: -90
         layer_label: LAYER.LABEL
         input_port_indexes: [0]
         component_name: for the label
-        taper_factory: taper
+        taper_factory: taper function
+        get_route_factory: route_fiber_array
 
     .. plot::
       :include-source:
 
        import pp
-       from pp.routing import add_io_optical
+       from pp.routing import add_fiber_array
 
-       c = pp.c.mmi1x2()
-       cc = add_io_optical(c)
+       c = pp.c.crossing()
+       cc = add_fiber_array(c)
        pp.plotgds(cc)
 
     """
@@ -86,16 +87,22 @@ def add_io_optical(
     component_name = component_name or c.name
     name = f"{component_name}_{gc_polarization}"
     cc = pp.Component(name=name)
-    cc.function_name = "add_io_optical"
 
-    port_width_gc = list(gc.ports.values())[0].width
-    port_width_component = list(c.ports.values())[0].width
+    port_width_gc = gc.ports[gc_port_name].width
+
+    optical_ports = c.get_ports_list(port_type="optical")
+    port_width_component = optical_ports[0].width
 
     if port_width_component != port_width_gc:
         c = add_tapers(
             c,
-            taper_factory(length=10, width1=port_width_gc, width2=port_width_component),
+            taper_factory(
+                length=taper_length, width1=port_width_gc, width2=port_width_component
+            ),
         )
+
+    # for pn, p in c.ports.items():
+    #     print(p.name, p.port_type, p.layer)
 
     elements, io_gratings_lines, _ = get_route_factory(
         component=c,
@@ -108,25 +115,30 @@ def add_io_optical(
     if len(elements) == 0:
         return c
 
-    cc.add(elements)
+    for e in elements:
+        cc.add(e)
     for io_gratings in io_gratings_lines:
         cc.add(io_gratings)
     cc.add(c.ref())
     cc.move(origin=io_gratings_lines[0][0].ports[gc_port_name], destination=(0, 0))
+
+    for pname, p in c.ports.items():
+        if p.port_type != "optical":
+            cc.add_port(pname, port=p)
 
     return cc
 
 
 def test_type0():
     component = pp.c.coupler(gap=0.244, length=5.67)
-    cc = add_io_optical(component, optical_routing_type=0)
+    cc = add_fiber_array(component, optical_routing_type=0)
     pp.write_gds(cc)
     return cc
 
 
 def test_type1():
     component = pp.c.coupler(gap=0.2, length=5.0)
-    cc = add_io_optical(component, optical_routing_type=1)
+    cc = add_fiber_array(component, optical_routing_type=1)
     pp.write_gds(cc)
     return cc
 
@@ -134,22 +146,22 @@ def test_type1():
 def test_type2():
     c = pp.c.coupler(gap=0.244, length=5.67)
     c.polarization = "tm"
-    cc = add_io_optical(c, optical_routing_type=2)
+    cc = add_fiber_array(c, optical_routing_type=2)
     pp.write_gds(cc)
     return cc
 
 
 def demo_tapers():
     c = pp.c.waveguide(width=2)
-    cc = add_io_optical(c, optical_routing_type=2)
+    cc = add_fiber_array(c, optical_routing_type=2)
     return cc
 
 
 def demo_te_and_tm():
     c = pp.Component()
     w = pp.c.waveguide()
-    wte = add_io_optical(w, grating_coupler=pp.c.grating_coupler_elliptical_te)
-    wtm = add_io_optical(w, grating_coupler=pp.c.grating_coupler_elliptical_tm)
+    wte = add_fiber_array(w, grating_coupler=pp.c.grating_coupler_elliptical_te)
+    wtm = add_fiber_array(w, grating_coupler=pp.c.grating_coupler_elliptical_tm)
     c.add_ref(wte)
     wtm_ref = c.add_ref(wtm)
     wtm_ref.movey(wte.size_info.height)
@@ -175,7 +187,7 @@ if __name__ == "__main__":
     # c = pp.c.waveguide()
 
     c.y = 0
-    cc = add_io_optical(
+    cc = add_fiber_array(
         c,
         # optical_routing_type=0,
         # optical_routing_type=1,
