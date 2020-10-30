@@ -109,7 +109,7 @@ def print_components_with_changes(
 
 @pytest.mark.parametrize("component_type", _components)
 @pytest.mark.noautofixt
-def test_components(
+def _test_components(
     component_type,
     component_type2factory=component_type2factory,
     path_library=path_library,
